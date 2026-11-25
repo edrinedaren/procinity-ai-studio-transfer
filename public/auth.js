@@ -287,12 +287,21 @@
   var lastSnap = "";
   function snap() {
     var o = {};
-    if (window.S) KEYS.forEach(function (k) { if (S[k] !== undefined) o[k] = S[k]; });
+    if (window.S) {
+      if (S.cur === undefined && S.pick && S.pick.Currency) S.cur = S.pick.Currency;
+      KEYS.forEach(function (k) { if (S[k] !== undefined) o[k] = S[k]; });
+    }
     return JSON.stringify(o);
   }
   function applyState(st) {
     if (!window.S || !st) return;
     KEYS.forEach(function (k) { if (k in st) S[k] = st[k]; });
+    if (S.cur) {
+      if (!S.pick || typeof S.pick !== "object") S.pick = {};
+      S.pick.Currency = S.cur;
+    } else if (S.pick && S.pick.Currency) {
+      S.cur = S.pick.Currency;
+    }
   }
   function signedIn(d, isNew) {
     var fn = pendingFn;
