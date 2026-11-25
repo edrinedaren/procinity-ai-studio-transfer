@@ -1,0 +1,9 @@
+.data/
+.data/procinity.db
+.data/procinity.db-wal
+.data/procinity.db-shm
+node_modules/
+.env
+.env.local
+.wrangler/
+bun.lock

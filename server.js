@@ -20,6 +20,7 @@ if (!fs.existsSync(dbDir)) {
 // Initialize SQLite database
 const dbPath = path.join(dbDir, 'procinity.db');
 const db = new DatabaseSync(dbPath);
+db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
 
 // Execute schema.sql to initialize tables
 const schemaPath = path.join(__dirname, 'schema.sql');
@@ -38,20 +39,27 @@ function createD1(sqlite) {
           boundArgs = args.map((arg) => (arg === undefined ? null : arg));
           return this;
         },
-        async first() {
+        async first(col) {
           const stmt = sqlite.prepare(sql);
           const row = stmt.get(...boundArgs);
-          return row || null;
+          if (!row) return null;
+          return col ? row[col] : row;
         },
         async all() {
           const stmt = sqlite.prepare(sql);
           const results = stmt.all(...boundArgs);
-          return { results: results || [] };
+          return { results: results || [], success: true, meta: {} };
         },
         async run() {
           const stmt = sqlite.prepare(sql);
           const meta = stmt.run(...boundArgs);
-          return { success: true, meta };
+          return {
+            success: true,
+            meta: {
+              changes: meta.changes,
+              last_row_id: Number(meta.lastInsertRowid || 0),
+            },
+          };
         },
       };
     },
@@ -61,6 +69,9 @@ function createD1(sqlite) {
         results.push(await stmt.run());
       }
       return results;
+    },
+    async exec(sql) {
+      sqlite.exec(sql);
     },
   };
 }
@@ -73,6 +84,7 @@ const env = {
 };
 
 const app = express();
+app.set('trust proxy', true);
 
 // Parse raw body for /api routes to feed into Web Request
 app.use('/api', express.raw({ type: '*/*', limit: '10mb' }));
@@ -80,10 +92,28 @@ app.use('/api', express.raw({ type: '*/*', limit: '10mb' }));
 // Forward /api requests to Cloudflare Worker backend
 app.use('/api', async (req, res, next) => {
   try {
-    const originHeader = req.headers['origin'];
-    const hostHeader = req.headers['host'] || `localhost:${PORT}`;
-    const protoHeader = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const baseUrl = originHeader || `${protoHeader}://${hostHeader}`;
+    const rawOrigin = req.headers['origin'];
+    const validOrigin = typeof rawOrigin === 'string' && rawOrigin !== 'null' && /^https?:\/\//i.test(rawOrigin) ? rawOrigin : '';
+    const forwardedHost = typeof req.headers['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0].trim()
+      : '';
+    const hostHeader = forwardedHost || req.headers['host'] || `localhost:${PORT}`;
+    const rawProto = typeof req.headers['x-forwarded-proto'] === 'string'
+      ? req.headers['x-forwarded-proto'].split(',')[0].trim()
+      : (req.protocol || 'http');
+    const protoHeader = rawProto === 'https' || rawProto === 'http' ? rawProto : 'http';
+    let validOriginUrl = null;
+    try {
+      if (validOrigin) validOriginUrl = new URL(validOrigin);
+    } catch {}
+    const originMatchesHost = !!(validOriginUrl && validOriginUrl.host.toLowerCase() === hostHeader.toLowerCase());
+    const effectiveProto = originMatchesHost
+      ? validOriginUrl.protocol.slice(0, -1)
+      : protoHeader;
+    const isLocalHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(hostHeader);
+    const baseUrl = (!forwardedHost && isLocalHost && validOrigin)
+      ? validOrigin
+      : `${effectiveProto}://${hostHeader}`;
     const fullUrl = new URL(req.originalUrl, baseUrl).href;
 
     const headers = new Headers();
@@ -94,6 +124,12 @@ app.use('/api', async (req, res, next) => {
       } else {
         headers.set(key, value);
       }
+    }
+    if (!headers.has('cf-connecting-ip')) {
+      const forwardedFor = typeof req.headers['x-forwarded-for'] === 'string'
+        ? req.headers['x-forwarded-for'].split(',')[0].trim()
+        : '';
+      headers.set('cf-connecting-ip', forwardedFor || req.ip || '127.0.0.1');
     }
 
     const init = {
@@ -137,11 +173,17 @@ const publicDir = path.join(__dirname, 'public');
 app.use(express.static(publicDir, {
   etag: true,
   maxAge: '1h',
+  setHeaders(res, filePath) {
+    if (!/[\\/](images|icons)[\\/]/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    }
+  },
 }));
 
 // SPA fallback: any unhandled GET request serves public/index.html
 app.use((req, res, next) => {
   if (req.method === 'GET' || req.method === 'HEAD') {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     return res.sendFile(path.join(publicDir, 'index.html'));
   }
   next();

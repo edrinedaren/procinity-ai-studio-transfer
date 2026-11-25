@@ -181,7 +181,7 @@
       api("POST", up ? "auth/signup" : "auth/login", up ? { email: email, password: pw, name: $("pxN").value } : { email: email, password: pw }).then(function (r) {
         if (r.ok) return signedIn(r.d, up);
         busy(btn, false, up ? "Create account" : "Sign in");
-        err.textContent = r.d.error || "Could not sign in.";
+        err.textContent = r.d.error || (up ? "Could not create account." : "Could not sign in.");
       });
     };
     var pk = $("pxPk"); if (pk) pk.onclick = passkeySignIn;
