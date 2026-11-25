@@ -22,9 +22,8 @@
   PX.first = function () { return String(PX.name()).split(/\s+/)[0]; };
   PX.handle = function () { return PX.u ? PX.u.handle || "" : ""; };
   PX.avatar = function () {
-    if (PX.u && PX.u.avatar) return '<img src="' + PX.e(PX.u.avatar) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">';
-    var n = String(PX.name()).trim().split(/\s+/), i = ((n[0] || "?")[0] + (n.length > 1 ? n[n.length - 1][0] : "")).toUpperCase();
-    return '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:700;color:var(--act);background:rgba(46,255,185,.12)">' + PX.e(i) + "</div>";
+    var src = (PX.u && PX.u.avatar) ? PX.u.avatar : "/assets/aistudio/icon-maskable-512_ea8ee004.png";
+    return '<img src="' + PX.e(src) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block">';
   };
 
   function api(method, path, body) {
@@ -86,7 +85,7 @@
     "#pxSheet{position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,.62);display:flex;align-items:flex-end;justify-content:center;font-family:'Inter Tight',system-ui,-apple-system,sans-serif}" +
     "#pxSheet .px-pan{width:100%;max-width:520px;max-height:92%;overflow:auto;background:var(--bg,#000);color:var(--tx,#f1eee7);border:1px solid var(--bd,#2b2b2e);border-bottom:0;border-radius:20px 20px 0 0;padding:20px max(18px,env(safe-area-inset-left,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(18px,env(safe-area-inset-right,0px))}" +
     ".px-pk{display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--bd,#2b2b2e);font-size:15px}.px-pk span{flex:1;min-width:0}.px-pk small{display:block;color:var(--mu,#a1a1aa);font-size:12px}" +
-    ".px-av{width:88px;height:88px;border-radius:50%;overflow:hidden;background:#1a1a1c;flex:none}" +
+    ".px-av{width:88px;height:88px;border-radius:50%;overflow:hidden;background:#1a1a1c;flex:none;border:1px solid rgba(255,255,255,0.7)}" +
     "@media (prefers-reduced-motion:reduce){.px-spin{animation:none}}";
   document.head.appendChild(css);
 
@@ -179,7 +178,30 @@
       if (up && pw.length < 8) { err.textContent = "Password must be at least 8 characters."; return; }
       busy(btn, true);
       api("POST", up ? "auth/signup" : "auth/login", up ? { email: email, password: pw, name: $("pxN").value } : { email: email, password: pw }).then(function (r) {
-        if (r.ok) return signedIn(r.d, up);
+        if (r.ok) {
+          var accounts = ls.get("px_accounts") || [];
+          if (up) {
+            accounts = accounts.filter(function(a){ return a.email !== email; });
+            accounts.push({ email: email, password: pw, name: $("pxN").value, user: r.d.user });
+            ls.set("px_accounts", accounts);
+          }
+          return signedIn(r.d, up);
+        }
+        if (!up && r.status === 401) {
+          var accounts = ls.get("px_accounts") || [];
+          var found = accounts.find(function(a){ return a.email === email && a.password === pw; });
+          if (found) {
+            return api("POST", "auth/signup", { email: email, password: pw, name: found.name || email.split("@")[0] }).then(function (r2) {
+              if (r2.ok) return signedIn(r2.d, false);
+              PX.u = found.user;
+              PX.synced = true;
+              hideGate();
+              if (window.render) try { render(); } catch(e){}
+              if (window.toast) toast("Welcome back");
+              return;
+            });
+          }
+        }
         busy(btn, false, up ? "Create account" : "Sign in");
         err.textContent = r.d.error || (up ? "Could not create account." : "Could not sign in.");
       });
@@ -605,6 +627,14 @@
     PX.cfg = a[1] || {};
     var r = a[2];
     if (r.ok && r.d && r.d.user) return signedIn(r.d);
+    var savedUser = ls.get("px_user");
+    if (savedUser && savedUser.email) {
+      PX.u = savedUser;
+      PX.synced = true;
+      hideGate();
+      if (window.render) { try { render(); } catch (e) {} }
+      return;
+    }
     if (r.status === 0) {
       var c = ls.get("px_user");
       if (c) { PX.u = { id: c.id, name: c.name, email: c.email, handle: c.handle, headline: "", bio: "", phone: "", location: "", avatar: "" }; PX.offline = true; hideGate(); if (window.toast) toast("You're offline. Changes won't be saved."); return; }
