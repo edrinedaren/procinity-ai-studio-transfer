@@ -1,0 +1,7 @@
+{
+  "name": "Procinity",
+  "description": "Local business network for discovering shops, services, rentals, and stays.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
