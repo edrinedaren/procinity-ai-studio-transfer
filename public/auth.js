@@ -30,7 +30,7 @@
   function api(method, path, body) {
     return fetch("/api/" + path, {
       method: method,
-      credentials: "same-origin",
+      credentials: "include",
       headers: body ? { "content-type": "application/json" } : {},
       body: body ? JSON.stringify(body) : undefined
     }).then(function (r) {
@@ -331,7 +331,7 @@
   function flush() {
     if (!PX.u || PX.offline || !PX.synced) return;
     var s = snap(); if (s === lastSnap) return; lastSnap = s;
-    try { fetch("/api/state", { method: "PUT", credentials: "same-origin", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ state: JSON.parse(s) }) }); } catch (e) {}
+    try { fetch("/api/state", { method: "PUT", credentials: "include", keepalive: true, headers: { "content-type": "application/json" }, body: JSON.stringify({ state: JSON.parse(s) }) }); } catch (e) {}
   }
   window.addEventListener("pagehide", flush);
   document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") flush(); });

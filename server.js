@@ -106,10 +106,22 @@ app.use('/api', async (req, res, next) => {
     try {
       if (validOrigin) validOriginUrl = new URL(validOrigin);
     } catch {}
+    const rawReferer = typeof req.headers['referer'] === 'string' ? req.headers['referer'] : '';
+    let validRefererUrl = null;
+    try {
+      if (rawReferer) validRefererUrl = new URL(rawReferer);
+    } catch {}
+
     const originMatchesHost = !!(validOriginUrl && validOriginUrl.host.toLowerCase() === hostHeader.toLowerCase());
+    const refererMatchesHost = !!(validRefererUrl && validRefererUrl.host.toLowerCase() === hostHeader.toLowerCase());
+    const isForwardedHttps = !!(forwardedHost && !/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(hostHeader));
+
     const effectiveProto = originMatchesHost
       ? validOriginUrl.protocol.slice(0, -1)
-      : protoHeader;
+      : (refererMatchesHost
+        ? validRefererUrl.protocol.slice(0, -1)
+        : (isForwardedHttps ? 'https' : protoHeader));
+
     const isLocalHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(hostHeader);
     const baseUrl = (!forwardedHost && isLocalHost && validOrigin)
       ? validOrigin
@@ -148,11 +160,33 @@ app.use('/api', async (req, res, next) => {
     res.status(webResponse.status);
 
     // Forward headers
+    let setCookies = [];
     if (typeof webResponse.headers.getSetCookie === 'function') {
-      const setCookies = webResponse.headers.getSetCookie();
-      if (setCookies && setCookies.length > 0) {
-        res.setHeader('set-cookie', setCookies);
+      setCookies = webResponse.headers.getSetCookie() || [];
+    } else if (webResponse.headers.has('set-cookie')) {
+      const single = webResponse.headers.get('set-cookie');
+      if (single) setCookies = [single];
+    }
+
+    if (setCookies.length > 0) {
+      if (effectiveProto === 'https' || isForwardedHttps) {
+        setCookies = setCookies.map((cookieStr) => {
+          let s = cookieStr;
+          if (!/;\s*Secure\b/i.test(s)) {
+            s += '; Secure';
+          }
+          if (/;\s*SameSite=[^;]+/i.test(s)) {
+            s = s.replace(/;\s*SameSite=[^;]+/i, '; SameSite=None');
+          } else {
+            s += '; SameSite=None';
+          }
+          if (!/;\s*Partitioned\b/i.test(s)) {
+            s += '; Partitioned';
+          }
+          return s;
+        });
       }
+      res.setHeader('set-cookie', setCookies);
     }
 
     for (const [key, value] of webResponse.headers.entries()) {
