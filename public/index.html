@@ -1582,11 +1582,14 @@ $("cartBtn").onclick=function(){
         "</div>"
       : '<div style="flex:1"></div>';
 
-    var ratingVal = active.rating != null ? Number(active.rating).toFixed(1) : "0.0";
+    var hasRating = active.rating != null && Number(active.rating) > 0;
+    var ratingHTML = hasRating
+      ? '<span><span style="color:var(--ac)">★</span> ' + Number(active.rating).toFixed(1) + "</span>"
+      : '<span><span style="color:var(--ac)">★</span> <span class="mu">No reviews yet</span></span>';
     var channelHeader = '<div style="padding:' + (galleryHTML ? "4px 0 0" : (list.length > 1 ? "2px 0 0" : "0")) + '">' +
       titleLeft +
       '<div class="mu" style="margin-top:8px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-        '<span><span style="color:var(--ac)">★</span> ' + esc(ratingVal) + "</span>" +
+        ratingHTML +
         '<span style="display:inline-flex;align-items:center;gap:4px">' + pinSvg(16) + esc(active.location) + "</span>" +
       "</div>" +
       (active.description ? '<div style="margin-top:12px"><div class="name" style="font-size:14px;color:var(--act);margin-bottom:3px">About</div><p style="margin:0;line-height:1.5;white-space:pre-wrap">' + esc(active.description) + "</p></div>" : "") +
