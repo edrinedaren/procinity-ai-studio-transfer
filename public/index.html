@@ -1441,7 +1441,9 @@ $("cartBtn").onclick=function(){
   window._bizSearchInput = function (v) {
     _biz.q = v;
     clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(function () { _biz.dir = null; loadPublicBusinesses(true); var el = $("bizDirList"); if (el) el.innerHTML = renderDirListHTML(); }, 220);
+    _searchTimer = setTimeout(function () {
+      render();
+    }, 150);
   };
   window._bizNew = function () {
     authRun("Sign in to register your business.", function () {
@@ -1470,19 +1472,9 @@ $("cartBtn").onclick=function(){
   };
 
   window.businessesView = function () {
-    loadPublicBusinesses(false);
-    var cats = ["All"].concat(BIZ_CATS);
-    var signedIn = !!(window.PX && PX.u);
     return '<div style="margin-top:-12px">' +
-      '<input id="bizDirSearch" placeholder="Search registered businesses\u2026" value="' + esc(_biz.q || "") + '" oninput="window._bizSearchInput(this.value)" autocomplete="off" style="margin-bottom:8px">' +
-      '<div class="chips" style="padding:4px 0 10px">' + cats.map(function (c) {
-        return '<button class="chip ' + ((_biz.cat || "All") === c ? "on" : "") + '" onclick="window._bizSetCat(\'' + esc(c) + '\')">' + esc(c) + "</button>";
-      }).join("") + "</div>" +
-      '<div style="display:flex;gap:8px;margin:4px 0 14px">' +
-        '<button class="pri" onclick="window._bizNew()" style="flex:1">Register business</button>' +
-        (signedIn ? '<button class="sec" onclick="S.mt=\'BizProfile\';window.scrollTo(0,0);render()" style="flex:1">My businesses</button>' : "") +
-      "</div>" +
-      '<div id="bizDirList">' + renderDirListHTML() + "</div>" +
+      '<input id="bizDirSearch" placeholder="Search your listings\u2026" value="' + esc(_biz.q || "") + '" oninput="window._bizSearchInput(this.value)" autocomplete="off" style="margin-bottom:12px">' +
+      window.bizManageView() +
       "</div>";
   };
 
