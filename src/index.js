@@ -194,8 +194,19 @@ async function b2Fetch({ method, key, body, contentType, env }) {
   });
 }
 
+const _fallbackImages = new Map();
+
 async function b2PutObject(env, key, binaryData, contentType) {
   if (!isAllowedB2Key(key)) throw bad("Invalid storage key.", 400);
+  const conf = getB2Config(env);
+  if (!conf.isConfigured) {
+    if (env.IMAGE_STORE) {
+      env.IMAGE_STORE.set(key, { bytes: binaryData, contentType });
+    } else {
+      _fallbackImages.set(key, { bytes: binaryData, contentType });
+    }
+    return `/api/images/${key}`;
+  }
   const res = await b2Fetch({
     method: "PUT",
     key,
@@ -214,7 +225,14 @@ async function b2PutObject(env, key, binaryData, contentType) {
 async function b2DeleteObject(env, key) {
   if (!key || !isAllowedB2Key(key)) return;
   const conf = getB2Config(env);
-  if (!conf.isConfigured) return;
+  if (!conf.isConfigured) {
+    if (env.IMAGE_STORE) {
+      env.IMAGE_STORE.delete(key);
+    } else {
+      _fallbackImages.delete(key);
+    }
+    return;
+  }
   try {
     const res = await b2Fetch({ method: "DELETE", key, env });
     if (!res.ok && res.status !== 404) {
@@ -799,7 +817,16 @@ async function handle(request, env, url) {
 
     const conf = getB2Config(env);
     if (!conf.isConfigured) {
-      return json({ error: "Backblaze B2 image storage is not configured yet." }, 503);
+      const local = env.IMAGE_STORE ? env.IMAGE_STORE.get(key) : _fallbackImages.get(key);
+      if (!local) throw bad("Image not found.", 404);
+      const headers = {
+        "content-type": local.contentType || (key.endsWith(".png") ? "image/png" : key.endsWith(".webp") ? "image/webp" : "image/jpeg"),
+        "cache-control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+      };
+      return new Response(method === "HEAD" ? null : local.bytes, {
+        status: 200,
+        headers,
+      });
     }
 
     const res = await b2Fetch({ method, key, env });

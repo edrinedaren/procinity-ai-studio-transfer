@@ -8,8 +8,8 @@ import worker from './src/index.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
-const HOST = '0.0.0.0';
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Load local .env if present
 const envFilePath = path.join(__dirname, '.env');
@@ -140,8 +140,63 @@ function createD1(sqlite) {
   };
 }
 
+// Local filesystem image store for when Backblaze B2 credentials are not set
+const imagesDir = path.join(dbDir, 'images');
+if (!fs.existsSync(imagesDir)) {
+  fs.mkdirSync(imagesDir, { recursive: true });
+}
+
+const fileImageStore = {
+  get(key) {
+    try {
+      const sanitized = key.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+      const filePath = path.join(imagesDir, sanitized);
+      const metaPath = filePath + '.meta.json';
+      if (fs.existsSync(filePath)) {
+        const bytes = fs.readFileSync(filePath);
+        let contentType = 'image/jpeg';
+        if (fs.existsSync(metaPath)) {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          if (meta.contentType) contentType = meta.contentType;
+        } else if (key.endsWith('.png')) {
+          contentType = 'image/png';
+        } else if (key.endsWith('.webp')) {
+          contentType = 'image/webp';
+        }
+        return { bytes, contentType };
+      }
+    } catch (e) {
+      console.warn('[AI Studio] Local image get error:', e.message);
+    }
+    return null;
+  },
+  set(key, { bytes, contentType }) {
+    try {
+      const sanitized = key.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+      const filePath = path.join(imagesDir, sanitized);
+      const metaPath = filePath + '.meta.json';
+      fs.writeFileSync(filePath, Buffer.from(bytes));
+      fs.writeFileSync(metaPath, JSON.stringify({ contentType }));
+    } catch (e) {
+      console.warn('[AI Studio] Local image set error:', e.message);
+    }
+  },
+  delete(key) {
+    try {
+      const sanitized = key.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+      const filePath = path.join(imagesDir, sanitized);
+      const metaPath = filePath + '.meta.json';
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      if (fs.existsSync(metaPath)) fs.unlinkSync(metaPath);
+    } catch (e) {
+      console.warn('[AI Studio] Local image delete error:', e.message);
+    }
+  },
+};
+
 const env = {
   DB: createD1(db),
+  IMAGE_STORE: fileImageStore,
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   MAIL_FROM: process.env.MAIL_FROM || '',
