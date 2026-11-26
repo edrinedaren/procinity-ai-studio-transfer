@@ -29,7 +29,7 @@ binding = "DB"
 database_name = "procinity"
 # >>> REPLACE the text below with your real Database ID from Cloudflare <<<
 # Cloudflare dashboard > Storage & databases > D1 SQL database > procinity > "Database ID"
-database_id = "5a5e0999-2bb0-4be7-9b63-c43b6f34700b"
+database_id = "17c6024d-df21-48d4-9be9-afbbbbe2d770"
 
 [observability]
 enabled = true
