@@ -42,3 +42,5 @@ Worker > Settings > Variables and Secrets:
 ## Good to know
 - Passkeys and Google sign-in are tied to the web address. If the address changes (different Worker name or a custom domain), people must register passkeys again, and the new address must be added in your Google OAuth settings.
 - Deploy from a computer with: `npm install` then `npx wrangler deploy`.
+- Automatic CI/CD: Connected to Cloudflare Workers Builds via GitHub integration to automatically build and deploy on every push to the `main` branch.
+

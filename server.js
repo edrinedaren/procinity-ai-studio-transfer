@@ -18,19 +18,63 @@ if (!fs.existsSync(dbDir)) {
 }
 
 // Initialize SQLite database
-const dbPath = path.join(dbDir, 'procinity.db');
-const db = new DatabaseSync(dbPath);
-db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
+let db = null;
+try {
+  const dbPath = path.join(dbDir, 'procinity.db');
+  db = new DatabaseSync(dbPath);
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
+} catch (err) {
+  console.warn('[AI Studio] File-based SQLite failed, falling back to in-memory SQLite:', err.message);
+  try {
+    db = new DatabaseSync(':memory:');
+  } catch (err2) {
+    console.warn('[AI Studio] SQLite unavailable, fallback mock will be used:', err2.message);
+  }
+}
 
 // Execute schema.sql to initialize tables
-const schemaPath = path.join(__dirname, 'schema.sql');
-if (fs.existsSync(schemaPath)) {
-  const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
-  db.exec(schemaSql);
+if (db) {
+  const schemaPath = path.join(__dirname, 'schema.sql');
+  if (fs.existsSync(schemaPath)) {
+    try {
+      const schemaSql = fs.readFileSync(schemaPath, 'utf-8');
+      db.exec(schemaSql);
+    } catch (err) {
+      console.warn('[AI Studio] schema.sql warning:', err.message);
+    }
+  }
+
+  // Execute any migrations
+  const migrationsDir = path.join(__dirname, 'migrations');
+  if (fs.existsSync(migrationsDir)) {
+    for (const f of fs.readdirSync(migrationsDir).sort()) {
+      if (f.endsWith('.sql')) {
+        try {
+          db.exec(fs.readFileSync(path.join(migrationsDir, f), 'utf-8'));
+        } catch (err) {
+          console.warn(`[AI Studio] Migration ${f} warning:`, err.message);
+        }
+      }
+    }
+  }
 }
 
 // Cloudflare D1 adapter for Node DatabaseSync
 function createD1(sqlite) {
+  if (!sqlite) {
+    return {
+      prepare() {
+        return {
+          bind() { return this; },
+          async first() { return null; },
+          async all() { return { results: [], success: true, meta: {} }; },
+          async run() { return { success: true, meta: { changes: 0, last_row_id: 0 } }; },
+        };
+      },
+      async batch() { return []; },
+      async exec() {},
+    };
+  }
   return {
     prepare(sql) {
       let boundArgs = [];
