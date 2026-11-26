@@ -1576,15 +1576,13 @@ $("cartBtn").onclick=function(){
 
     var ratingVal = active.rating != null ? Number(active.rating).toFixed(1) : "0.0";
     var channelHeader = '<div style="padding:' + (galleryHTML ? "4px 0 0" : (list.length > 1 ? "2px 0 0" : "0")) + '">' +
-      '<div class="row" style="align-items:center">' +
-        titleLeft +
-        '<span style="flex:none;border:1.5px solid var(--ac);color:var(--act);border-radius:999px;padding:3px 10px;font-size:13px">' + esc(active.category) + "</span>" +
-      "</div>" +
-      '<div class="mu" style="margin-top:6px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      titleLeft +
+      '<div style="margin-top:5px"><span style="display:inline-block;font-size:11px;font-weight:500;color:var(--mu);border:1px solid var(--bd);border-radius:999px;padding:1px 8px">' + esc(active.category) + "</span></div>" +
+      '<div class="mu" style="margin-top:8px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<span><span style="color:var(--ac)">★</span> ' + esc(ratingVal) + "</span>" +
         '<span style="display:inline-flex;align-items:center;gap:4px">' + pinSvg(16) + esc(active.location) + "</span>" +
       "</div>" +
-      (active.description ? '<p style="margin:10px 0 0;line-height:1.5;white-space:pre-wrap">' + esc(active.description) + "</p>" : "") +
+      (active.description ? '<div style="margin-top:12px"><div class="name" style="font-size:14px;color:var(--act);margin-bottom:3px">About</div><p style="margin:0;line-height:1.5;white-space:pre-wrap">' + esc(active.description) + "</p></div>" : "") +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">' +
         contactInline +
         '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none">Share</button>' +
