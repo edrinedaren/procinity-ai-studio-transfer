@@ -2577,6 +2577,7 @@ $("cartBtn").onclick=function(){
         }
         _prod.pub = null;
         _prod.my = null;
+        if (!isEdit && payload.business_id) prodExpandedMap[payload.business_id] = false;
         o.remove();
         toast(isEdit ? "Product updated" : "Product created");
         if (onSaved) onSaved(r.d && r.d.product);
@@ -2584,8 +2585,10 @@ $("cartBtn").onclick=function(){
     };
   };
 
+  var prodExpandedMap = {};
   window.loadBizProductsInto = function (el, biz, onMutated) {
     if (!el || !biz || !biz.id) return;
+    var latestOnlyMode = el.id === "myBizProducts";
     el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
       (biz.is_owner ? '<button id="bpAddProd" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
       '</div><p class="mu">Loading products...</p>';
@@ -2607,55 +2610,85 @@ $("cartBtn").onclick=function(){
           '</div><p class="mu" style="color:#ff6b6b">' + esc((res.d && res.d.error) || "Could not load products.") + "</p>";
       } else {
         var list = dedupeProducts((res.d && res.d.products) || []);
-        var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products <span class="mu" style="font-weight:500;font-size:14px">(' + list.length + ")</span></div>" +
-          (biz.is_owner ? '<button id="bpAddProd2" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
-          "</div>";
-        if (!list.length) {
-          el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "No products listed under this business yet." : "No published products listed by this business yet.") + "</p></div>";
-        } else {
-          el.innerHTML = header + '<div style="display:grid;gap:10px">' + list.map(function (p) {
-            var img0 = Array.isArray(p.images) && p.images.length ? safeImgSrc(p.images[0]) : "";
-            var thumb = img0
-              ? '<img src="' + esc(img0) + '" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex:none;display:block;border:1px solid var(--bd)">'
-              : '<div style="width:56px;height:56px;border-radius:10px;flex:none;background:#141416;border:1px solid var(--bd)"></div>';
-            return '<div class="card pad" style="padding:10px 12px">' +
-              '<div data-bpv="' + esc(p.id) + '" style="display:flex;align-items:center;gap:12px;cursor:pointer">' +
-                thumb +
-                '<div style="flex:1;min-width:0">' +
-                  '<div class="row" style="gap:8px"><div class="name" style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</div>' + (biz.is_owner ? '<span class="tag" style="flex:none;color:' + (p.published ? "var(--act)" : "var(--mu)") + '">' + (p.published ? "Published" : "Draft") + "</span>" : "") + "</div>" +
-                  '<div style="margin-top:2px"><b class="price">' + esc(window._prodFmt(p.price, p.currency)) + '</b> <span class="mu" style="font-size:12px">· ' + esc(p.condition) + " · " + esc(p.category) + "</span></div>" +
-                "</div>" +
-              "</div>" +
-              (biz.is_owner
-                ? '<div style="display:flex;gap:8px;margin-top:10px">' +
-                    '<button class="sec" data-bpe="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">Edit</button>' +
-                    '<button class="sec" data-bpt="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">' + (p.published ? "Unpublish" : "Publish") + "</button>" +
-                  "</div>"
-                : "") +
+        function drawProducts(items) {
+          var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products <span class="mu" style="font-weight:500;font-size:14px">(' + items.length + ")</span></div>" +
+            (biz.is_owner ? '<button id="bpAddProd2" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
             "</div>";
-          }).join("") + "</div>";
+          if (!items.length) {
+            el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "No products listed under this business yet." : "No published products listed by this business yet.") + "</p></div>";
+          } else {
+            var hasOthers = items.length > 1;
+            var showAll = !latestOnlyMode || (hasOthers && !!prodExpandedMap[biz.id]);
+            var visible = showAll ? items : [items[0]];
+            el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p, idx) {
+              var img0 = Array.isArray(p.images) && p.images.length ? safeImgSrc(p.images[0]) : "";
+              var thumb = img0
+                ? '<img src="' + esc(img0) + '" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex:none;display:block;border:1px solid var(--bd)">'
+                : '<div style="width:56px;height:56px;border-radius:10px;flex:none;background:#141416;border:1px solid var(--bd)"></div>';
+              var viewAllRow = (latestOnlyMode && idx === 0)
+                ? '<div style="display:flex;align-items:center;justify-content:flex-start;margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">' +
+                    (hasOthers && prodExpandedMap[biz.id]
+                      ? '<button type="button" id="bpShowLessProds" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer">Show less</button>'
+                      : '<button type="button" id="bpViewAllProds" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:' + (hasOthers ? "#fff" : "var(--mu)") + ';cursor:' + (hasOthers ? "pointer" : "default") + '">View all</button>') +
+                  "</div>"
+                : "";
+              return '<div class="card pad" style="padding:10px 12px">' +
+                '<div data-bpv="' + esc(p.id) + '" style="display:flex;align-items:center;gap:12px;cursor:pointer">' +
+                  thumb +
+                  '<div style="flex:1;min-width:0">' +
+                    '<div class="row" style="gap:8px"><div class="name" style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</div>' + (biz.is_owner ? '<span class="tag" style="flex:none;color:' + (p.published ? "var(--act)" : "var(--mu)") + '">' + (p.published ? "Published" : "Draft") + "</span>" : "") + "</div>" +
+                    '<div style="margin-top:2px"><b class="price">' + esc(window._prodFmt(p.price, p.currency)) + '</b> <span class="mu" style="font-size:12px">· ' + esc(p.condition) + " · " + esc(p.category) + "</span></div>" +
+                  "</div>" +
+                "</div>" +
+                (biz.is_owner
+                  ? '<div style="display:flex;gap:8px;margin-top:10px">' +
+                      '<button class="sec" data-bpe="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">Edit</button>' +
+                      '<button class="sec" data-bpt="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">' + (p.published ? "Unpublish" : "Publish") + "</button>" +
+                    "</div>"
+                  : "") +
+                viewAllRow +
+              "</div>";
+            }).join("") + "</div>";
 
-          var byId = {};
-          list.forEach(function (p) { byId[p.id] = p; });
-          Array.prototype.forEach.call(el.querySelectorAll("[data-bpv]"), function (b) {
-            b.onclick = function () { openRegisteredProduct(byId[b.dataset.bpv] || b.dataset.bpv); };
-          });
-          Array.prototype.forEach.call(el.querySelectorAll("[data-bpe]"), function (b) {
-            b.onclick = function () {
-              var p = byId[b.dataset.bpe];
-              if (p) openProductForm(biz.id, p, function () { if (onMutated) onMutated(); render(); });
+            var viewAllProdsBtn = el.querySelector("#bpViewAllProds");
+            if (viewAllProdsBtn) viewAllProdsBtn.onclick = function () {
+              if (!hasOthers) { toast("No other products to show"); return; }
+              prodExpandedMap[biz.id] = true;
+              drawProducts(items);
             };
-          });
-          Array.prototype.forEach.call(el.querySelectorAll("[data-bpt]"), function (b) {
-            b.onclick = function () {
-              var p = byId[b.dataset.bpt];
-              if (p) toggleProductPublish(p, function () { if (onMutated) onMutated(); render(); });
+            var showLessProdsBtn = el.querySelector("#bpShowLessProds");
+            if (showLessProdsBtn) showLessProdsBtn.onclick = function () {
+              prodExpandedMap[biz.id] = false;
+              drawProducts(items);
             };
-          });
+
+            var byId = {};
+            items.forEach(function (p) { byId[p.id] = p; });
+            Array.prototype.forEach.call(el.querySelectorAll("[data-bpv]"), function (b) {
+              b.onclick = function () { openRegisteredProduct(byId[b.dataset.bpv] || b.dataset.bpv); };
+            });
+            Array.prototype.forEach.call(el.querySelectorAll("[data-bpe]"), function (b) {
+              b.onclick = function () {
+                var p = byId[b.dataset.bpe];
+                if (p) openProductForm(biz.id, p, function () { if (onMutated) onMutated(); render(); });
+              };
+            });
+            Array.prototype.forEach.call(el.querySelectorAll("[data-bpt]"), function (b) {
+              b.onclick = function () {
+                var p = byId[b.dataset.bpt];
+                if (p) toggleProductPublish(p, function () { if (onMutated) onMutated(); render(); });
+              };
+            });
+          }
+          var add2 = el.querySelector("#bpAddProd2");
+          if (add2) add2.onclick = function () {
+            openProductForm(biz.id, null, function () { if (onMutated) onMutated(); render(); });
+          };
         }
+        drawProducts(list);
       }
-      var add2 = el.querySelector("#bpAddProd2");
-      if (add2) add2.onclick = function () {
+      var addErr = el.querySelector("#bpAddProd2");
+      if (addErr && !res.ok) addErr.onclick = function () {
         openProductForm(biz.id, null, function () { if (onMutated) onMutated(); render(); });
       };
     }, function () {
@@ -2820,15 +2853,15 @@ $("cartBtn").onclick=function(){
         var showAll = hasOthers && !!expandedMap[biz.id];
         var visible = showAll ? list : [list[0]];
         el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p, idx) {
-          var leftAction = (idx === 0 && hasOthers)
+          var leftAction = (idx === 0)
             ? (showAll
-                ? '<button type="button" id="bpShowLessPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:var(--act);cursor:pointer">Show less</button>'
-                : '<button type="button" id="bpViewAllPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:var(--act);cursor:pointer">View all</button>')
+                ? '<button type="button" id="bpShowLessPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer">Show less</button>'
+                : '<button type="button" id="bpViewAllPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:' + (hasOthers ? "#fff" : "var(--mu)") + ';cursor:' + (hasOthers ? "pointer" : "default") + '">View all</button>')
             : "<span></span>";
           var rightAction = biz.is_owner
             ? '<button type="button" data-bpdel="' + esc(p.id) + '" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;color:#ff6b6b;cursor:pointer">Delete</button>'
             : "";
-          var footer = ((idx === 0 && hasOthers) || biz.is_owner)
+          var footer = (idx === 0 || biz.is_owner)
             ? '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">' +
                 leftAction + rightAction +
               "</div>"
@@ -2838,6 +2871,7 @@ $("cartBtn").onclick=function(){
 
         var viewAllBtn = el.querySelector("#bpViewAllPosts");
         if (viewAllBtn) viewAllBtn.onclick = function () {
+          if (!hasOthers) { toast("No other posts to show"); return; }
           expandedMap[biz.id] = true;
           drawPosts(list);
         };
