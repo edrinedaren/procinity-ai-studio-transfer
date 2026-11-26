@@ -1592,7 +1592,7 @@ $("cartBtn").onclick=function(){
       (active.description ? '<div style="margin-top:12px"><div class="name" style="font-size:14px;color:var(--act);margin-bottom:3px">About</div><p style="margin:0;line-height:1.5;white-space:pre-wrap">' + esc(active.description) + "</p></div>" : "") +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">' +
         contactInline +
-        '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none">Share</button>' +
+        '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none">Share business</button>' +
       "</div>" +
     "</div>";
 
@@ -2228,13 +2228,21 @@ $("cartBtn").onclick=function(){
       var ed = o.querySelector("#rpEdit");
       if (ed) ed.onclick = function () {
         authRun("Sign in to manage product listings.", function () {
-          openProductForm(p.business_id, p, function (np) { if (np && document.body.contains(o)) draw(np); render(); });
+          openProductForm(p.business_id, p, function (np) {
+            if (np && document.body.contains(o)) draw(np);
+            var bp = $("bizPublicPage"); if (bp && bp._pxRefresh) bp._pxRefresh();
+            render();
+          });
         });
       };
       var dl = o.querySelector("#rpDel");
       if (dl) dl.onclick = function () {
         authRun("Sign in to manage product listings.", function () {
-          confirmDeleteProduct(p, function () { if (document.body.contains(o)) o.remove(); render(); });
+          confirmDeleteProduct(p, function () {
+            if (document.body.contains(o)) o.remove();
+            var bp = $("bizPublicPage"); if (bp && bp._pxRefresh) bp._pxRefresh();
+            render();
+          });
         });
       };
       o.querySelector("#ic").onclick = function () {
@@ -2622,7 +2630,6 @@ $("cartBtn").onclick=function(){
                 ? '<div style="display:flex;gap:8px;margin-top:10px">' +
                     '<button class="sec" data-bpe="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">Edit</button>' +
                     '<button class="sec" data-bpt="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">' + (p.published ? "Unpublish" : "Publish") + "</button>" +
-                    '<button class="sec" data-bpd="' + esc(p.id) + '" style="flex:none;padding:6px 10px;font-size:13px;color:#ff6b6b">Delete</button>' +
                   "</div>"
                 : "") +
             "</div>";
@@ -2643,12 +2650,6 @@ $("cartBtn").onclick=function(){
             b.onclick = function () {
               var p = byId[b.dataset.bpt];
               if (p) toggleProductPublish(p, function () { if (onMutated) onMutated(); render(); });
-            };
-          });
-          Array.prototype.forEach.call(el.querySelectorAll("[data-bpd]"), function (b) {
-            b.onclick = function () {
-              var p = byId[b.dataset.bpd];
-              if (p) confirmDeleteProduct(p, function () { if (onMutated) onMutated(); render(); });
             };
           });
         }
