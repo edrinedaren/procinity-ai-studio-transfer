@@ -1560,12 +1560,19 @@ $("cartBtn").onclick=function(){
     }
 
     var logoSrc = safeImgSrc(active.logo);
+    var catChip = '<div style="margin-top:4px"><span style="display:inline-block;font-size:11px;font-weight:500;color:var(--mu);border:1px solid var(--bd);border-radius:999px;padding:1px 8px">' + esc(active.category) + "</span></div>";
     var titleLeft = logoSrc
       ? '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">' +
           '<img src="' + esc(logoSrc) + '" alt="" style="width:52px;height:52px;border-radius:14px;object-fit:cover;flex:none;display:block;border:1px solid var(--bd)">' +
-          '<div class="name" style="font-size:22px;font-weight:700;word-break:break-word;min-width:0">' + esc(active.name) + "</div>" +
+          '<div style="flex:1;min-width:0">' +
+            '<div class="name" style="font-size:22px;font-weight:700;word-break:break-word;min-width:0">' + esc(active.name) + "</div>" +
+            catChip +
+          "</div>" +
         "</div>"
-      : '<div class="name" style="font-size:22px;font-weight:700;word-break:break-word;flex:1;min-width:0">' + esc(active.name) + "</div>";
+      : '<div style="flex:1;min-width:0">' +
+          '<div class="name" style="font-size:22px;font-weight:700;word-break:break-word;min-width:0">' + esc(active.name) + "</div>" +
+          catChip +
+        "</div>";
 
     var contactInline = (active.phone || active.email)
       ? '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:13px">' +
@@ -1578,7 +1585,6 @@ $("cartBtn").onclick=function(){
     var ratingVal = active.rating != null ? Number(active.rating).toFixed(1) : "0.0";
     var channelHeader = '<div style="padding:' + (galleryHTML ? "4px 0 0" : (list.length > 1 ? "2px 0 0" : "0")) + '">' +
       titleLeft +
-      '<div style="margin-top:5px"><span style="display:inline-block;font-size:11px;font-weight:500;color:var(--mu);border:1px solid var(--bd);border-radius:999px;padding:1px 8px">' + esc(active.category) + "</span></div>" +
       '<div class="mu" style="margin-top:8px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
         '<span><span style="color:var(--ac)">★</span> ' + esc(ratingVal) + "</span>" +
         '<span style="display:inline-flex;align-items:center;gap:4px">' + pinSvg(16) + esc(active.location) + "</span>" +
@@ -2807,7 +2813,7 @@ $("cartBtn").onclick=function(){
         (biz.is_owner ? '<button id="bpAddPost2" class="pri" style="padding:6px 12px;font-size:13px">Add post</button>' : "") +
         "</div>";
       if (!list.length) {
-        el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">No posts yet.</p></div>';
+        el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "You don't have any social posts" : "No social posts yet.") + "</p></div>";
       } else {
         var hasOthers = list.length > 1;
         var showAll = hasOthers && !!expandedMap[biz.id];

@@ -607,6 +607,29 @@ function checkClientData(cdB64, url, type) {
   return cd;
 }
 
+const _bpReadyDbs = new WeakSet();
+async function ensureBusinessPostsTable(env) {
+  if (!env || !env.DB || _bpReadyDbs.has(env.DB)) return;
+  await env.DB.batch([
+    env.DB.prepare(
+      "CREATE TABLE IF NOT EXISTS business_posts (" +
+        "id TEXT PRIMARY KEY," +
+        "business_id TEXT NOT NULL," +
+        "user_id TEXT NOT NULL," +
+        "content TEXT NOT NULL," +
+        "image TEXT NOT NULL DEFAULT ''," +
+        "created_at INTEGER NOT NULL," +
+        "updated_at INTEGER NOT NULL," +
+        "FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE," +
+        "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE" +
+      ")"
+    ),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_business_posts_biz_created ON business_posts(business_id, created_at DESC)"),
+    env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_business_posts_user ON business_posts(user_id)"),
+  ]);
+  _bpReadyDbs.add(env.DB);
+}
+
 // ---------- routes ----------
 async function handle(request, env, url) {
   if (!env.DB) throw bad("The database is not connected yet. Add the D1 binding named DB.", 503);
@@ -890,6 +913,7 @@ async function handle(request, env, url) {
   if (path === "business-posts" && method === "GET") {
     const bizId = String(url.searchParams.get("business_id") || "").trim();
     if (!bizId) throw bad("Missing business_id.");
+    await ensureBusinessPostsTable(env);
     const r = await env.DB.prepare(
       "SELECT * FROM business_posts WHERE business_id=? ORDER BY created_at DESC LIMIT 100"
     ).bind(bizId).all();
@@ -1060,6 +1084,7 @@ async function handle(request, env, url) {
     } else if (String(b.confirm || "") !== "DELETE") {
       throw bad('Type DELETE to confirm.');
     }
+    await ensureBusinessPostsTable(env);
     const oldAvatarKey = extractB2Key(user.avatar);
     const userBizs = await env.DB.prepare("SELECT logo, images FROM businesses WHERE user_id=?").bind(user.id).all();
     const userProds = await env.DB.prepare("SELECT images FROM products WHERE user_id=?").bind(user.id).all();
@@ -1225,6 +1250,7 @@ async function handle(request, env, url) {
       if ((prodCnt && prodCnt.n) > 0) {
         throw bad("This business still has product listings. Delete its products first before deleting the business.", 409);
       }
+      await ensureBusinessPostsTable(env);
       const oldPosts = await env.DB.prepare("SELECT image FROM business_posts WHERE business_id=?").bind(id).all();
       await env.DB.batch([
         env.DB.prepare("DELETE FROM business_posts WHERE business_id=? AND user_id=?").bind(id, user.id),
@@ -1529,6 +1555,7 @@ async function handle(request, env, url) {
 
   // --- authenticated business posts ---
   if (path === "business-posts" && method === "POST") {
+    await ensureBusinessPostsTable(env);
     const b = await body();
     await limit(env, "bpost:" + user.id, 60, 3600);
     const businessId = cleanText(b.business_id, 100, "Business");
@@ -1570,6 +1597,7 @@ async function handle(request, env, url) {
 
   const bizPostMatch = path.match(/^business-posts\/([^/]+)$/);
   if (bizPostMatch && method === "DELETE") {
+    await ensureBusinessPostsTable(env);
     const id = decodeURIComponent(bizPostMatch[1]);
     const existing = await env.DB.prepare("SELECT * FROM business_posts WHERE id=?").bind(id).first();
     if (!existing) throw bad("Post not found.", 404);
