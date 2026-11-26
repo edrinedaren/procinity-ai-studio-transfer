@@ -931,7 +931,7 @@ function render(){
   $("cartBtn").style.display="none";
   $("cartChip").style.display=S.tab==="market"?"flex":"none";
   $("cartChip").style.alignItems="center";$("cartChip").style.gap="5px";
-  $("cartChip").innerHTML="🛒<span style=\"font-size:17px;font-weight:600\">"+S.cart.length+"</span>";
+  $("cartChip").innerHTML="🛒<span style=\"font-size:17px;font-weight:600;font-family:'Inter Tight',system-ui,-apple-system,sans-serif\">"+S.cart.length+"</span>";
   requestAnimationFrame(function(){var f=$("chips").firstElementChild;if(f&&S.tab==="market")$("cartChip").style.top=(f.offsetTop+f.offsetHeight/2)+"px"});
   $("locBtn").style.display=S.tab==="discover"?"":"none";
   $("shopMenuBtn").style.display=S.tab==="market"?"":"none";
