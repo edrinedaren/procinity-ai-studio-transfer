@@ -1327,10 +1327,11 @@ $("cartBtn").onclick=function(){
   var BIZ_CATS = ["Shops", "Boutiques", "Bakeries", "Restaurants", "Resorts", "Supermarkets", "Butchers", "Services", "Other"];
   var _biz = (window._biz = {
     dir: null, dirKey: "", dirLoading: false, dirErr: "",
-    my: null, myUid: null, myLoading: false, myErr: "", limit: 10,
+    my: null, myUid: null, myLoading: false, myErr: "", limit: 1, isPremium: false, selId: null,
     cat: "All", q: ""
   });
   var _searchTimer = null;
+  var _bizProdTimer = null;
 
   function safeImgSrc(s) {
     if (typeof s !== "string" || !s) return "";
@@ -1389,11 +1390,17 @@ $("cartBtn").onclick=function(){
     if (!uid) {
       _biz.my = null;
       _biz.myUid = null;
+      _biz.selId = null;
+      _biz.isPremium = false;
+      _biz.limit = 1;
       return;
     }
     if (_biz.myUid !== uid) {
       _biz.my = null;
       _biz.myUid = uid;
+      _biz.selId = null;
+      _biz.isPremium = !!(PX.u && PX.u.is_premium);
+      _biz.limit = (PX.u && PX.u.business_limit) || (_biz.isPremium ? 10 : 1);
     }
     if (!force && _biz.my !== null && _biz.myUid === uid) return;
     if (_biz.myLoading && _biz.myUid === uid) return;
@@ -1402,12 +1409,13 @@ $("cartBtn").onclick=function(){
     _biz.myUid = uid;
     PX.api("GET", "businesses/my").then(function (res) {
       _biz.myLoading = false;
-      if (!res.ok) { _biz.myErr = (res.d && res.d.error) || "Could not load your businesses."; }
+      if (!res.ok) { _biz.myErr = (res.d && res.d.error) || "Could not load your business."; }
       else {
         _biz.my = (res.d && res.d.businesses) || [];
+        if (res.d && typeof res.d.is_premium === "boolean") _biz.isPremium = res.d.is_premium;
         if (res.d && res.d.limit) _biz.limit = res.d.limit;
       }
-      if (S.tab === "me" && S.mt === "BizProfile") render();
+      if (S.tab === "me" && (S.mt === "BizProfile" || S.mt === "Businesses")) render();
     });
   }
 
@@ -1448,14 +1456,38 @@ $("cartBtn").onclick=function(){
       render();
     }, 150);
   };
+  window._bizSelect = function (id) {
+    _biz.selId = id;
+    render();
+  };
+  window._bizShare = function (id) {
+    var list = _biz.my || [];
+    var b = null;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) { b = list[i]; break; }
+    if (!b) return;
+    var shareUrl = location.origin + "/?biz=" + encodeURIComponent(b.id);
+    if (navigator.share) { navigator.share({ title: b.name, text: b.name + " on Procinity", url: shareUrl }).catch(function () {}); }
+    else if (navigator.clipboard) { navigator.clipboard.writeText(shareUrl).then(function () { toast("Link copied"); }, function () { toast(shareUrl); }); }
+    else toast("Link ready");
+  };
   window._bizNew = function () {
     authRun("Sign in to register your business.", function () {
-      openBizForm(null, function () { render(); });
+      var list = _biz.my || [];
+      var isPremium = !!(_biz.isPremium || (window.PX && PX.u && PX.u.is_premium));
+      var limit = _biz.limit || (isPremium ? 10 : 1);
+      if (list.length >= limit) {
+        toast(isPremium ? ("Limit reached (" + limit + "/" + limit + ").") : "Registering additional businesses is a Premium-only feature.");
+        return;
+      }
+      openBizForm(null, function (nb) {
+        if (nb && nb.id) _biz.selId = nb.id;
+        render();
+      });
     });
   };
   window._bizEdit = function (id) {
-    authRun("Sign in to manage your businesses.", function () {
-      var list = (_biz.my || []).concat(_biz.dir || []);
+    authRun("Sign in to manage your business.", function () {
+      var list = _biz.my || [];
       var b = null;
       for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) { b = list[i]; break; }
       if (b) { openBizForm(b, function () { render(); }); return; }
@@ -1465,7 +1497,7 @@ $("cartBtn").onclick=function(){
     });
   };
   window._bizDelete = function (id) {
-    authRun("Sign in to manage your businesses.", function () {
+    authRun("Sign in to manage your business.", function () {
       var list = _biz.my || [];
       var b = null;
       for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === id) { b = list[i]; break; }
@@ -1475,58 +1507,118 @@ $("cartBtn").onclick=function(){
   };
 
   window.businessesView = function () {
-    return '<div style="margin-top:-12px">' +
-      '<input id="bizDirSearch" placeholder="Search your listings\u2026" value="' + esc(_biz.q || "") + '" oninput="window._bizSearchInput(this.value)" autocomplete="off" style="margin-bottom:12px">' +
-      window.bizManageView() +
-      "</div>";
+    return window.bizManageView();
   };
 
   window.bizManageView = function () {
     if (!window.PX || !PX.u) {
-      return '<div class="card pad" style="margin-top:-10px"><div class="name" style="font-size:18px">Sign in to manage your businesses</div><p class="mu" style="margin:8px 0 16px">Business owners can register and manage up to 10 businesses from their account.</p><div style="display:flex;gap:8px"><button class="pri" onclick="authRun(\'Sign in to register and manage your businesses.\',function(){render()})" style="flex:1">Sign in</button><button class="sec" onclick="S.mt=\'Businesses\';window.scrollTo(0,0);render()" style="flex:1">Browse businesses</button></div></div>';
+      return '<div class="card pad" style="margin-top:-10px"><div class="name" style="font-size:18px">Sign in to manage your business</div><p class="mu" style="margin:8px 0 16px">Register and manage your business profile and products from your account.</p><button class="pri" onclick="authRun(\'Sign in to register and manage your business.\',function(){render()})" style="width:100%">Sign in</button></div>';
     }
     loadMyBusinesses(false);
     var list = _biz.my || [];
-    var limit = _biz.limit || 10;
+    var isPremium = !!(_biz.isPremium || (PX.u && PX.u.is_premium));
+    var limit = _biz.limit || (isPremium ? 10 : 1);
     var atLimit = list.length >= limit;
-    
+
     if (_biz.myLoading && _biz.my === null) {
-      return '<div class="card pad" style="margin-top:-10px"><p class="mu">Loading your businesses...</p></div>';
+      return '<div class="card pad" style="margin-top:-10px"><p class="mu">Loading your business...</p></div>';
     }
     if (_biz.myErr) {
       return '<div class="card pad" style="margin-top:-10px"><div style="color:#ff6b6b;margin-bottom:10px">' + esc(_biz.myErr) + '</div><button class="sec" onclick="window._bizRetryMy()">Try again</button></div>';
     }
     if (!list.length) {
-      return '<div class="card pad" style="margin-top:-10px"><div class="name" style="font-size:16px">No businesses yet</div><p class="mu" style="margin:6px 0 14px">Register your business to create a public profile visitors can browse and contact.</p><button class="pri" onclick="window._bizNew()" style="width:100%">Register a business</button></div>';
+      return '<div class="card pad" style="margin-top:-10px"><div class="name" style="font-size:16px">No business yet</div><p class="mu" style="margin:6px 0 14px">Register your business to showcase your profile, gallery photos and products.</p><button class="pri" onclick="window._bizNew()" style="width:100%">Register a business</button></div>';
     }
 
-    var hdr = '<div class="card pad" style="margin-top:-10px;margin-bottom:12px">' +
-      '<div class="row"><div><div class="name" style="font-size:17px">Your registered businesses</div><div class="mu" style="margin-top:2px">' + list.length + " of " + limit + " businesses registered" + '</div></div></div>' +
-      '<div style="display:flex;gap:8px;margin-top:14px">' +
-        '<button class="pri" ' + (atLimit ? 'disabled style="flex:1;opacity:.5;cursor:default"' : 'onclick="window._bizNew()" style="flex:1"') + '>' + (atLimit ? "Limit reached (10/10)" : "Register a business") + "</button>" +
-        '<button class="sec" onclick="S.mt=\'Businesses\';window.scrollTo(0,0);render()" style="flex:1">Browse all</button>' +
-      "</div>" +
-      "</div>";
+    var active = null;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && list[i].id === _biz.selId) { active = list[i]; break; }
+    }
+    if (!active) {
+      active = list[0];
+      _biz.selId = active.id;
+    }
 
-    return hdr + '<div style="display:grid;gap:12px">' + list.map(function (b) {
-      var contact = [b.phone, b.email].filter(Boolean).join(" · ");
-      return '<div class="card pad">' +
-        '<div style="display:flex;align-items:center;gap:12px">' +
-          bizLogoHTML(b, 56) +
-          '<div style="flex:1;min-width:0">' +
-            '<div class="row"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(b.name) + '</div><span class="tag" style="color:var(--act)">' + esc(b.category) + "</span></div>" +
-            '<div class="mu" style="display:flex;align-items:center;gap:4px;margin-top:3px">' + pinSvg(13) + '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(b.location) + "</span></div>" +
-            (contact ? '<div class="mu" style="font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(contact) + "</div>" : "") +
+    var switcherHTML = "";
+    if (list.length > 1) {
+      switcherHTML = '<div class="chips" style="margin-top:-14px;padding:0 0 12px">' + list.map(function (b) {
+        var on = b.id === active.id;
+        return '<button class="chip' + (on ? " on" : "") + '" onclick="window._bizSelect(\'' + esc(b.id) + '\')">' + esc(b.name) + "</button>";
+      }).join("") + "</div>";
+    }
+
+    var imgs = (active.images || []).map(safeImgSrc).filter(Boolean);
+    var galleryHTML = "";
+    if (imgs.length > 1) {
+      galleryHTML = '<div class="card" style="' + (list.length > 1 ? "" : "margin-top:-10px;") + 'margin-bottom:12px"><div style="position:relative;aspect-ratio:16/10">' +
+        '<div onscroll="accScroll(this)" style="display:flex;height:100%;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none">' +
+          imgs.map(function (src) { return '<img src="' + esc(src) + '" alt="" draggable="false" style="flex:none;width:100%;height:100%;object-fit:cover;scroll-snap-align:center;display:block">'; }).join("") +
+        '</div><div class="ac" style="position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:99px;background:rgba(0,0,0,.6);color:#fff;font-size:13px;font-weight:600;pointer-events:none">1/' + imgs.length + "</div></div></div>";
+    } else if (imgs.length === 1) {
+      galleryHTML = '<div class="card" style="' + (list.length > 1 ? "" : "margin-top:-10px;") + 'margin-bottom:12px"><div style="aspect-ratio:16/10;overflow:hidden"><img src="' + esc(imgs[0]) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div></div>';
+    }
+
+    var headTopStyle = (!galleryHTML && list.length <= 1) ? "margin-top:-10px" : "";
+    var channelHeader = '<div class="card pad" style="' + headTopStyle + '">' +
+      '<div style="display:flex;align-items:center;gap:14px">' +
+        bizLogoHTML(active, 68) +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="name" style="font-size:20px;font-weight:700;word-break:break-word">' + esc(active.name) + "</div>" +
+          '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px">' +
+            '<span style="font-size:12px;font-weight:600;color:var(--act);border:1px solid var(--ac);padding:2px 9px;border-radius:99px">' + esc(active.category) + "</span>" +
+            '<span class="mu" style="display:inline-flex;align-items:center;gap:4px">' + pinSvg(14) + esc(active.location) + "</span>" +
           "</div>" +
         "</div>" +
-        (b.description ? '<p class="mu" style="margin:10px 0 0;color:var(--tx)">' + esc(b.description) + "</p>" : "") +
-        '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">' +
-          '<button class="sec" onclick="openRegisteredBusiness(\'' + esc(b.id) + '\')" style="flex:1">View profile</button>' +
-          '<button class="sec" onclick="window.openProductForm&&openProductForm(\'' + esc(b.id) + '\',null,function(){render()})" style="flex:1">Add product</button>' +
-          '<button class="pri" onclick="window._bizEdit(\'' + esc(b.id) + '\')" style="flex:1">Edit</button>' +
-          '<button class="sec" onclick="window._bizDelete(\'' + esc(b.id) + '\')" style="flex:none;color:#ff6b6b">Delete</button>' +
-        "</div></div>";
-    }).join("") + "</div>";
+      "</div>" +
+      '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">' +
+        '<button class="pri" onclick="window._bizEdit(\'' + esc(active.id) + '\')" style="flex:1">Edit</button>' +
+        '<button class="sec" onclick="window.openProductForm&&openProductForm(\'' + esc(active.id) + '\',null,function(){render()})" style="flex:1">Add product</button>' +
+        '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none">Share</button>' +
+        '<button class="sec" onclick="window._bizDelete(\'' + esc(active.id) + '\')" style="flex:none;color:#ff6b6b">Delete</button>' +
+      "</div>" +
+    "</div>";
+
+    var aboutCard = active.description
+      ? '<div class="card pad" style="margin-top:12px">' +
+          '<div class="name" style="font-size:15px;margin-bottom:6px">About</div>' +
+          '<p style="margin:0;line-height:1.55;white-space:pre-wrap">' + esc(active.description) + "</p>" +
+        "</div>"
+      : "";
+
+    var contactCard = (active.phone || active.email)
+      ? '<div class="card pad" style="margin-top:12px;display:grid;gap:10px">' +
+          '<div class="name" style="font-size:15px">Contact information</div>' +
+          (active.phone ? '<a href="tel:' + esc(active.phone) + '" style="display:flex;align-items:center;justify-content:space-between;color:var(--act);text-decoration:none;font-size:15px"><span>Phone</span><b>' + esc(active.phone) + "</b></a>" : "") +
+          (active.email ? '<a href="mailto:' + esc(active.email) + '" style="display:flex;align-items:center;justify-content:space-between;color:var(--act);text-decoration:none;font-size:15px"><span>Email</span><b>' + esc(active.email) + "</b></a>" : "") +
+        "</div>"
+      : "";
+
+    var prodsBox = '<div id="myBizProducts" data-biz-id="' + esc(active.id) + '" style="margin-top:16px">' +
+      '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
+        '<button class="pri" onclick="window.openProductForm&&openProductForm(\'' + esc(active.id) + '\',null,function(){render()})" style="padding:6px 12px;font-size:13px">Add product</button>' +
+      '</div><p class="mu">Loading products...</p>' +
+    "</div>";
+
+    var slotCard = (!isPremium && atLimit)
+      ? '<div class="card pad" style="margin-top:16px">' +
+          '<div class="name" style="font-size:15px">Additional businesses</div>' +
+          '<div class="mu" style="margin-top:4px;font-size:13px">Free accounts can register 1 business. Registering additional businesses is a Premium-only feature.</div>' +
+        "</div>"
+      : '<div class="card pad" style="margin-top:16px">' +
+          '<div class="row"><div><div class="name" style="font-size:15px">Your businesses</div><div class="mu" style="margin-top:2px">' + list.length + " of " + limit + " businesses registered</div></div></div>" +
+          '<button class="sec" ' + (atLimit ? 'disabled style="width:100%;margin-top:12px;opacity:.5;cursor:default"' : 'onclick="window._bizNew()" style="width:100%;margin-top:12px"') + ">" + (atLimit ? "Limit reached (" + limit + "/" + limit + ")" : "Register another business") + "</button>" +
+        "</div>";
+
+    clearTimeout(_bizProdTimer);
+    var bizSnapshot = active;
+    _bizProdTimer = setTimeout(function () {
+      var el = $("myBizProducts");
+      if (el && el.getAttribute("data-biz-id") === bizSnapshot.id && window.loadBizProductsInto) {
+        window.loadBizProductsInto(el, bizSnapshot);
+      }
+    }, 0);
+
+    return switcherHTML + galleryHTML + channelHeader + aboutCard + contactCard + prodsBox + slotCard;
   };
   window._bizRetryMy = function () { _biz.my = null; loadMyBusinesses(true); render(); };
 
@@ -1546,7 +1638,7 @@ $("cartBtn").onclick=function(){
       PX.api("DELETE", "businesses/" + encodeURIComponent(b.id)).then(function (r) {
         if (!r.ok) { btn.disabled = false; btn.textContent = "Delete"; ov.querySelector("#bdErr").textContent = (r.d && r.d.error) || "Could not delete business."; return; }
         ov.remove();
-        _biz.dir = null; _biz.my = null;
+        _biz.dir = null; _biz.my = null; _biz.selId = null;
         if (window._prod) { window._prod.biz = null; window._prod.pub = null; window._prod.my = null; }
         toast("Business deleted");
         if (onDeleted) onDeleted();

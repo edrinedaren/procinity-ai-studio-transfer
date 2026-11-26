@@ -28,6 +28,7 @@ const b64u = {
 const SESSION_DAYS = 30;
 const COOKIE = "pc_session";
 const STATE_MAX = 200 * 1024;
+const BIZ_MAX_FREE = 1;
 const BIZ_MAX_PER_USER = 10;
 const BIZ_IMAGE_MAX_COUNT = 4;
 const BIZ_CATEGORIES = new Set(["Shops", "Boutiques", "Bakeries", "Restaurants", "Resorts", "Supermarkets", "Butchers", "Services", "Other"]);
@@ -448,7 +449,14 @@ async function requireUser(env, request) {
   return u;
 }
 
+function isPremiumUser(u) {
+  return !!(u && (u.is_premium === 1 || u.is_premium === true || u.plan === "premium"));
+}
+function userBizLimit(u) {
+  return isPremiumUser(u) ? BIZ_MAX_PER_USER : BIZ_MAX_FREE;
+}
 function publicUser(u) {
+  const premium = isPremiumUser(u);
   return {
     id: u.id,
     email: u.email,
@@ -461,6 +469,8 @@ function publicUser(u) {
     avatar: (u.avatar && typeof u.avatar === "string" && u.avatar.startsWith("/api/images/")) ? u.avatar : "",
     hasPassword: !!u.pw_hash,
     google: !!u.google_sub,
+    is_premium: premium,
+    business_limit: premium ? BIZ_MAX_PER_USER : BIZ_MAX_FREE,
     created_at: u.created_at,
   };
 }
@@ -1096,15 +1106,25 @@ async function handle(request, env, url) {
     const r = await env.DB.prepare(
       "SELECT b.*, u.name AS owner_name, u.handle AS owner_handle FROM businesses b LEFT JOIN users u ON u.id=b.user_id WHERE b.user_id=? ORDER BY b.created_at DESC"
     ).bind(user.id).all();
-    return json({ businesses: (r.results || []).map((b) => publicBusiness(b, user)), limit: BIZ_MAX_PER_USER });
+    const premium = isPremiumUser(user);
+    return json({
+      businesses: (r.results || []).map((b) => publicBusiness(b, user)),
+      limit: userBizLimit(user),
+      is_premium: premium,
+    });
   }
 
   if (path === "businesses" && method === "POST") {
     const b = await body();
     await limit(env, "biz:" + user.id, 30, 3600);
+    const premium = isPremiumUser(user);
+    const maxBiz = userBizLimit(user);
     const cnt = await env.DB.prepare("SELECT COUNT(*) AS n FROM businesses WHERE user_id=?").bind(user.id).first();
-    if ((cnt && cnt.n) >= BIZ_MAX_PER_USER) {
-      throw bad(`You can register up to ${BIZ_MAX_PER_USER} businesses per account.`);
+    if ((cnt && cnt.n) >= maxBiz) {
+      if (!premium) {
+        throw bad("Free accounts can register 1 business. Registering additional businesses is a Premium-only feature.", 403);
+      }
+      throw bad(`You can register up to ${maxBiz} businesses per account.`);
     }
     const name = cleanText(b.name, 80, "Business name");
     if (!name) throw bad("Enter a business name.");

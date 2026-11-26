@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS users (
   pw_hash TEXT,
   google_sub TEXT UNIQUE,
   state TEXT,
+  is_premium INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER,
   updated_at INTEGER
 );

@@ -336,6 +336,9 @@
     applyState(d.state);
     if (window._biz) {
       window._biz.my = null; window._biz.myUid = null; window._biz.dir = null;
+      window._biz.selId = null;
+      window._biz.isPremium = !!(d.user && d.user.is_premium);
+      window._biz.limit = (d.user && d.user.business_limit) || (window._biz.isPremium ? 10 : 1);
     }
     if (window._prod) {
       window._prod.my = null; window._prod.myUid = null;
