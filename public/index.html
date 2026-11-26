@@ -1333,7 +1333,10 @@ $("cartBtn").onclick=function(){
   var _searchTimer = null;
 
   function safeImgSrc(s) {
-    return typeof s === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) ? s : "";
+    if (typeof s !== "string" || !s) return "";
+    if (s.startsWith("/api/images/") || s.startsWith("/images/") || s.startsWith("/assets/")) return s;
+    if (/^https?:\/\//i.test(s)) return s;
+    return /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) ? s : "";
   }
   function bizInitials(name) {
     var parts = String(name || "").trim().split(/\s+/).filter(Boolean);
@@ -1803,7 +1806,10 @@ $("cartBtn").onclick=function(){
   });
 
   function safeImgSrc(s) {
-    return typeof s === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) ? s : "";
+    if (typeof s !== "string" || !s) return "";
+    if (s.startsWith("/api/images/") || s.startsWith("/images/") || s.startsWith("/assets/")) return s;
+    if (/^https?:\/\//i.test(s)) return s;
+    return /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) ? s : "";
   }
 
   function formatNum(n) {

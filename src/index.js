@@ -28,7 +28,6 @@ const b64u = {
 const SESSION_DAYS = 30;
 const COOKIE = "pc_session";
 const STATE_MAX = 200 * 1024;
-const AVATAR_MAX = 160 * 1024;
 const BIZ_MAX_PER_USER = 10;
 const BIZ_IMAGE_MAX_COUNT = 4;
 const BIZ_CATEGORIES = new Set(["Shops", "Boutiques", "Bakeries", "Restaurants", "Resorts", "Supermarkets", "Butchers", "Services", "Other"]);
@@ -60,6 +59,205 @@ async function sha256(data) {
 }
 const sha256hex = async (s) =>
   [...(await sha256(s))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+// ---------- Backblaze B2 S3 storage ----------
+const B2_DEFAULT_BUCKET = "procinity-images-2026";
+const B2_DEFAULT_ENDPOINT = "https://s3.eu-central-003.backblazeb2.com";
+const B2_DEFAULT_REGION = "eu-central-003";
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+
+function getB2Config(env) {
+  const keyId = env.B2_APPLICATION_KEY_ID || env.B2_KEY_ID || "";
+  const key = env.B2_APPLICATION_KEY || "";
+  const bucket = env.B2_BUCKET_NAME || B2_DEFAULT_BUCKET;
+  const endpoint = (env.B2_ENDPOINT || B2_DEFAULT_ENDPOINT).replace(/\/+$/, "");
+  const region = env.B2_REGION || B2_DEFAULT_REGION;
+  return {
+    keyId,
+    key,
+    bucket,
+    endpoint,
+    region,
+    isConfigured: !!(keyId && key),
+  };
+}
+
+async function hmacSha256(key, data) {
+  const k = typeof key === "string" ? enc.encode(key) : key;
+  const d = typeof data === "string" ? enc.encode(data) : data;
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    k,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  return new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, d));
+}
+
+function toHex(buf) {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function getSignatureKey(key, dateStamp, regionName, serviceName) {
+  const kDate = await hmacSha256("AWS4" + key, dateStamp);
+  const kRegion = await hmacSha256(kDate, regionName);
+  const kService = await hmacSha256(kRegion, serviceName);
+  const kSigning = await hmacSha256(kService, "aws4_request");
+  return kSigning;
+}
+
+function isAllowedB2Key(k) {
+  if (typeof k !== "string" || !k) return false;
+  if (k.includes("..") || k.includes("//") || k.startsWith("/") || k.endsWith("/")) return false;
+  return /^(users|businesses|products)\/[a-zA-Z0-9_\-\/.]+\.(jpg|jpeg|png|webp)$/.test(k);
+}
+
+function extractB2Key(ref) {
+  if (typeof ref !== "string" || !ref) return null;
+  const s = ref.trim();
+  if (s.startsWith("/api/images/")) {
+    const k = s.slice("/api/images/".length).replace(/^\/+/, "");
+    return isAllowedB2Key(k) ? k : null;
+  }
+  return isAllowedB2Key(s) ? s : null;
+}
+
+async function b2Fetch({ method, key, body, contentType, env }) {
+  const conf = getB2Config(env);
+  if (!conf.isConfigured) {
+    throw bad("Backblaze B2 storage credentials are not configured. Set B2_APPLICATION_KEY_ID and B2_APPLICATION_KEY.", 503);
+  }
+
+  const cleanKey = key.replace(/^\/+/, "");
+  const encodedKey = cleanKey.split("/").map(encodeURIComponent).join("/");
+  const canonicalUri = `/${encodeURIComponent(conf.bucket)}/${encodedKey}`;
+  const url = `${conf.endpoint}${canonicalUri}`;
+  const host = new URL(conf.endpoint).host;
+
+  const now = new Date();
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, "");
+  const dateStamp = amzDate.slice(0, 8);
+
+  const payload = body || new Uint8Array(0);
+  const payloadHash = await sha256hex(payload);
+
+  const headersToSign = {
+    host,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": amzDate,
+  };
+  if (contentType) {
+    headersToSign["content-type"] = contentType;
+  }
+
+  const sortedKeys = Object.keys(headersToSign).sort();
+  const canonicalHeaders = sortedKeys.map((k) => `${k}:${headersToSign[k]}\n`).join("");
+  const signedHeaders = sortedKeys.join(";");
+
+  const canonicalRequest = [
+    method,
+    canonicalUri,
+    "",
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const credentialScope = `${dateStamp}/${conf.region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    await sha256hex(canonicalRequest),
+  ].join("\n");
+
+  const signingKey = await getSignatureKey(conf.key, dateStamp, conf.region, "s3");
+  const signature = toHex(await hmacSha256(signingKey, stringToSign));
+
+  const authHeader = `AWS4-HMAC-SHA256 Credential=${conf.keyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
+
+  const requestHeaders = new Headers();
+  requestHeaders.set("Host", host);
+  requestHeaders.set("x-amz-date", amzDate);
+  requestHeaders.set("x-amz-content-sha256", payloadHash);
+  requestHeaders.set("Authorization", authHeader);
+  if (contentType) {
+    requestHeaders.set("Content-Type", contentType);
+  }
+
+  return fetch(url, {
+    method,
+    headers: requestHeaders,
+    body: method !== "GET" && method !== "HEAD" && payload.length > 0 ? payload : undefined,
+  });
+}
+
+async function b2PutObject(env, key, binaryData, contentType) {
+  if (!isAllowedB2Key(key)) throw bad("Invalid storage key.", 400);
+  const res = await b2Fetch({
+    method: "PUT",
+    key,
+    body: binaryData,
+    contentType,
+    env,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    console.error(`B2 PUT failed (${res.status}):`, errText);
+    throw bad("Failed to upload image to Backblaze B2 storage. Check credentials and bucket name.", 502);
+  }
+  return `/api/images/${key}`;
+}
+
+async function b2DeleteObject(env, key) {
+  if (!key || !isAllowedB2Key(key)) return;
+  const conf = getB2Config(env);
+  if (!conf.isConfigured) return;
+  try {
+    const res = await b2Fetch({ method: "DELETE", key, env });
+    if (!res.ok && res.status !== 404) {
+      console.warn(`B2 DELETE status ${res.status} for key ${key}`);
+    }
+  } catch (err) {
+    console.warn(`B2 DELETE error for key ${key}:`, err.message);
+  }
+}
+
+function parseImageDataUrl(str) {
+  if (typeof str !== "string") return null;
+  const s = str.trim();
+  const match = s.match(/^data:(image\/(jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) return null;
+  const contentType = match[1];
+  const ext = match[2] === "jpeg" ? "jpg" : match[2];
+  const rawBase64 = match[3];
+  const binaryLen = Math.floor((rawBase64.length * 3) / 4);
+  if (binaryLen > IMAGE_MAX_BYTES) {
+    throw bad("Image is too large (maximum 5 MB).");
+  }
+  const bytes = Uint8Array.from(atob(rawBase64), (c) => c.charCodeAt(0));
+  if (bytes.length > IMAGE_MAX_BYTES) {
+    throw bad("Image is too large (maximum 5 MB).");
+  }
+  return { contentType, ext, bytes };
+}
+
+async function processImageUpload(env, val, destinationKeyPrefix, label = "Image") {
+  if (!val) return "";
+  const s = String(val).trim();
+  if (s.startsWith("/api/images/")) {
+    const k = extractB2Key(s);
+    if (!k) throw bad(`${label} has an invalid storage reference.`);
+    return `/api/images/${k}`;
+  }
+  const parsed = parseImageDataUrl(s);
+  if (!parsed) {
+    throw bad(`${label} is invalid. Pick a valid JPEG, PNG or WebP image.`);
+  }
+  const key = `${destinationKeyPrefix}-${crypto.randomUUID()}.${parsed.ext}`;
+  return await b2PutObject(env, key, parsed.bytes, parsed.contentType);
+}
 
 // ---------- passwords (PBKDF2-SHA256, 100k iterations is the Workers maximum) ----------
 async function hashPw(pw, salt = crypto.getRandomValues(new Uint8Array(16)), iter = 100000) {
@@ -108,8 +306,12 @@ const cleanOptionalEmail = (v) => {
 const cleanImageData = (v, label = "Image") => {
   const s = String(v == null ? "" : v).trim();
   if (!s) return "";
-  if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) || s.length > AVATAR_MAX) {
-    throw bad(`${label} is invalid or too large. Pick a smaller image.`);
+  if (s.startsWith("/api/images/")) {
+    if (!extractB2Key(s)) throw bad(`${label} has an invalid storage reference.`);
+    return s;
+  }
+  if (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) || s.length > IMAGE_MAX_BYTES * 1.4) {
+    throw bad(`${label} is invalid or too large. Pick an image under 5 MB.`);
   }
   return s;
 };
@@ -144,7 +346,7 @@ const safeParseImages = (raw) => {
   try {
     const parsed = JSON.parse(raw || "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((x) => typeof x === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(x) && x.length <= AVATAR_MAX);
+    return parsed.filter((x) => typeof x === "string" && x.startsWith("/api/images/") && isAllowedB2Key(x.slice("/api/images/".length)));
   } catch {
     return [];
   }
@@ -256,7 +458,7 @@ function publicUser(u) {
     bio: u.bio || "",
     phone: u.phone || "",
     location: u.location || "",
-    avatar: u.avatar || "",
+    avatar: (u.avatar && typeof u.avatar === "string" && u.avatar.startsWith("/api/images/")) ? u.avatar : "",
     hasPassword: !!u.pw_hash,
     google: !!u.google_sub,
     created_at: u.created_at,
@@ -272,7 +474,7 @@ function publicBusiness(b, viewer) {
     phone: b.phone || "",
     email: b.email || "",
     description: b.description || "",
-    logo: b.logo || "",
+    logo: (b.logo && typeof b.logo === "string" && b.logo.startsWith("/api/images/")) ? b.logo : "",
     images: safeParseImages(b.images),
     owner_name: b.owner_name || "",
     owner_handle: b.owner_handle || "",
@@ -545,6 +747,40 @@ async function handle(request, env, url) {
     );
   }
 
+  // --- public secure image delivery from Backblaze B2 ---
+  if (path.startsWith("images/") && (method === "GET" || method === "HEAD")) {
+    const key = path.slice("images/".length).replace(/^\/+/, "");
+    if (!isAllowedB2Key(key)) throw bad("Invalid image key.", 400);
+
+    const conf = getB2Config(env);
+    if (!conf.isConfigured) {
+      return json({ error: "Backblaze B2 image storage is not configured yet." }, 503);
+    }
+
+    const res = await b2Fetch({ method, key, env });
+    if (!res.ok) {
+      if (res.status === 404) throw bad("Image not found.", 404);
+      const err = await res.text().catch(() => "");
+      console.error(`B2 GET failed (${res.status}):`, err);
+      throw bad("Could not load image.", 502);
+    }
+
+    const ct = res.headers.get("content-type") || (key.endsWith(".png") ? "image/png" : key.endsWith(".webp") ? "image/webp" : "image/jpeg");
+    const headers = {
+      "content-type": ct,
+      "cache-control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+    };
+    const etag = res.headers.get("etag");
+    if (etag) headers["etag"] = etag;
+    const cl = res.headers.get("content-length");
+    if (cl) headers["content-length"] = cl;
+
+    return new Response(method === "HEAD" ? null : res.body, {
+      status: 200,
+      headers,
+    });
+  }
+
   // --- public business directory & profiles (no session needed) ---
   if (path === "businesses" && method === "GET") {
     const q = String(url.searchParams.get("q") || "").trim().toLowerCase().slice(0, 80);
@@ -656,18 +892,94 @@ async function handle(request, env, url) {
       if (await env.DB.prepare("SELECT 1 FROM users WHERE handle=? AND id<>?").bind(h, user.id).first()) throw bad("That username is taken.", 409);
       f.handle = h;
     }
+    let oldAvatarToDelete = null;
     if ("avatar" in b) {
-      const a = String(b.avatar || "");
-      if (a && (!/^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(a) || a.length > AVATAR_MAX)) throw bad("That photo is too large. Pick a smaller one.");
-      f.avatar = a;
+      const a = String(b.avatar || "").trim();
+      if (!a) {
+        f.avatar = "";
+        if (user.avatar) oldAvatarToDelete = extractB2Key(user.avatar);
+      } else if (a.startsWith("/api/images/")) {
+        const k = extractB2Key(a);
+        if (!k) throw bad("Invalid photo reference.");
+        if (!k.startsWith(`users/${user.id}/`) && a !== user.avatar) {
+          throw bad("You do not have permission to use this photo reference.", 403);
+        }
+        f.avatar = `/api/images/${k}`;
+        if (user.avatar && user.avatar !== f.avatar) {
+          oldAvatarToDelete = extractB2Key(user.avatar);
+        }
+      } else {
+        const uploaded = await processImageUpload(env, a, `users/${user.id}/avatar`, "Profile photo");
+        f.avatar = uploaded;
+        if (user.avatar && user.avatar !== uploaded) {
+          oldAvatarToDelete = extractB2Key(user.avatar);
+        }
+      }
     }
     const keys = Object.keys(f);
     if (keys.length) {
       await env.DB.prepare(`UPDATE users SET ${keys.map((k) => k + "=?").join(",")}, updated_at=? WHERE id=?`)
         .bind(...keys.map((k) => f[k]), Date.now(), user.id).run();
     }
+    if (oldAvatarToDelete) {
+      await b2DeleteObject(env, oldAvatarToDelete);
+    }
     const fresh = await env.DB.prepare("SELECT * FROM users WHERE id=?").bind(user.id).first();
     return json({ user: publicUser(fresh) });
+  }
+
+  // --- authenticated image upload & delete endpoints ---
+  if (path === "upload" && method === "POST") {
+    const b = await body();
+    await limit(env, "upload:" + user.id, 60, 3600);
+    const targetType = String(b.type || "avatar").toLowerCase();
+    const data = b.image || b.file;
+    if (!data) throw bad("No image data provided.");
+    let prefix = `users/${user.id}/avatar`;
+    if (targetType === "logo" || targetType === "business" || targetType === "gallery") {
+      if (b.business_id) {
+        const bizId = cleanText(b.business_id, 100, "Business");
+        const hit = await env.DB.prepare("SELECT 1 FROM businesses WHERE id=? AND user_id=?").bind(bizId, user.id).first();
+        if (!hit) throw bad("You do not have permission to upload images for this business.", 403);
+        prefix = `businesses/${bizId}/${targetType === "logo" ? "logo" : "gallery"}`;
+      } else {
+        prefix = `users/${user.id}/${targetType === "logo" ? "biz-logo" : "biz-gallery"}`;
+      }
+    } else if (targetType === "product") {
+      if (b.product_id) {
+        const prodId = cleanText(b.product_id, 100, "Product");
+        const hit = await env.DB.prepare("SELECT 1 FROM products WHERE id=? AND user_id=?").bind(prodId, user.id).first();
+        if (!hit) throw bad("You do not have permission to upload images for this product.", 403);
+        prefix = `products/${prodId}/img`;
+      } else {
+        prefix = `users/${user.id}/prod-img`;
+      }
+    } else if (targetType !== "avatar") {
+      throw bad("Unsupported upload type.");
+    }
+    const url = await processImageUpload(env, data, prefix, "Upload");
+    return json({ url, key: extractB2Key(url) });
+  }
+
+  if (path === "upload" && method === "DELETE") {
+    const b = await body();
+    const cleanKey = extractB2Key(b.key || b.url || "");
+    if (!cleanKey) throw bad("Invalid image key.");
+    let allowed = false;
+    if (cleanKey.startsWith(`users/${user.id}/`)) {
+      allowed = true;
+    } else if (cleanKey.startsWith("businesses/")) {
+      const bizId = cleanKey.split("/")[1];
+      const hit = await env.DB.prepare("SELECT 1 FROM businesses WHERE id=? AND user_id=?").bind(bizId, user.id).first();
+      if (hit) allowed = true;
+    } else if (cleanKey.startsWith("products/")) {
+      const prodId = cleanKey.split("/")[1];
+      const hit = await env.DB.prepare("SELECT 1 FROM products WHERE id=? AND user_id=?").bind(prodId, user.id).first();
+      if (hit) allowed = true;
+    }
+    if (!allowed) throw bad("You do not have permission to delete this image.", 403);
+    await b2DeleteObject(env, cleanKey);
+    return json({ ok: true });
   }
 
   if (path === "me/email" && method === "POST") {
@@ -716,6 +1028,10 @@ async function handle(request, env, url) {
     } else if (String(b.confirm || "") !== "DELETE") {
       throw bad('Type DELETE to confirm.');
     }
+    const oldAvatarKey = extractB2Key(user.avatar);
+    const userBizs = await env.DB.prepare("SELECT logo, images FROM businesses WHERE user_id=?").bind(user.id).all();
+    const userProds = await env.DB.prepare("SELECT images FROM products WHERE user_id=?").bind(user.id).all();
+
     await env.DB.batch([
       env.DB.prepare("DELETE FROM products WHERE user_id=?").bind(user.id),
       env.DB.prepare("DELETE FROM businesses WHERE user_id=?").bind(user.id),
@@ -725,6 +1041,20 @@ async function handle(request, env, url) {
       env.DB.prepare("DELETE FROM reset_codes WHERE email=?").bind(user.email),
       env.DB.prepare("DELETE FROM users WHERE id=?").bind(user.id),
     ]);
+
+    if (oldAvatarKey) await b2DeleteObject(env, oldAvatarKey);
+    for (const bRow of (userBizs.results || [])) {
+      if (bRow.logo) await b2DeleteObject(env, extractB2Key(bRow.logo));
+      for (const imgUrl of safeParseImages(bRow.images)) {
+        await b2DeleteObject(env, extractB2Key(imgUrl));
+      }
+    }
+    for (const pRow of (userProds.results || [])) {
+      for (const imgUrl of safeParseImages(pRow.images)) {
+        await b2DeleteObject(env, extractB2Key(imgUrl));
+      }
+    }
+
     return json({ ok: true }, 200, { "set-cookie": sessionCookie(request, "", 0) });
   }
 
@@ -787,13 +1117,49 @@ async function handle(request, env, url) {
     const phone = cleanPhone(b.phone);
     const email = cleanOptionalEmail(b.email);
     if (!phone && !email) throw bad("Add a phone number or email address.");
-    const logo = cleanImageData(b.logo, "Logo");
-    const images = cleanBusinessImages(b.images);
+
     const id = crypto.randomUUID();
-    const now = Date.now();
-    await env.DB.prepare(
-      "INSERT INTO businesses(id,user_id,name,category,location,phone,email,description,logo,images,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
-    ).bind(id, user.id, name, category, location, phone, email, description, logo, JSON.stringify(images), now, now).run();
+    const rawImages = cleanBusinessImages(b.images);
+    let logoUrl = "";
+    const galleryUrls = [];
+    const newlyUploadedKeys = [];
+    try {
+      if (b.logo) {
+        const rawLogo = String(b.logo).trim();
+        if (rawLogo.startsWith("/api/images/")) {
+          const k = extractB2Key(rawLogo);
+          if (!k || !k.startsWith(`users/${user.id}/`)) throw bad("You do not have permission to use this logo reference.", 403);
+          logoUrl = `/api/images/${k}`;
+        } else {
+          logoUrl = await processImageUpload(env, rawLogo, `businesses/${id}/logo`, "Logo");
+          const lk = extractB2Key(logoUrl);
+          if (lk) newlyUploadedKeys.push(lk);
+        }
+      }
+
+      for (const rawImg of rawImages) {
+        if (rawImg.startsWith("/api/images/")) {
+          const k = extractB2Key(rawImg);
+          if (!k || !k.startsWith(`users/${user.id}/`)) throw bad("You do not have permission to use this image reference.", 403);
+          galleryUrls.push(`/api/images/${k}`);
+        } else {
+          const uploaded = await processImageUpload(env, rawImg, `businesses/${id}/gallery`, "Business image");
+          if (uploaded) {
+            galleryUrls.push(uploaded);
+            const gk = extractB2Key(uploaded);
+            if (gk) newlyUploadedKeys.push(gk);
+          }
+        }
+      }
+
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO businesses(id,user_id,name,category,location,phone,email,description,logo,images,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).bind(id, user.id, name, category, location, phone, email, description, logoUrl, JSON.stringify(galleryUrls), now, now).run();
+    } catch (err) {
+      for (const k of newlyUploadedKeys) await b2DeleteObject(env, k);
+      throw err;
+    }
     const fresh = await env.DB.prepare(
       "SELECT b.*, u.name AS owner_name, u.handle AS owner_handle FROM businesses b LEFT JOIN users u ON u.id=b.user_id WHERE b.id=?"
     ).bind(id).first();
@@ -813,6 +1179,17 @@ async function handle(request, env, url) {
         throw bad("This business still has product listings. Delete its products first before deleting the business.", 409);
       }
       await env.DB.prepare("DELETE FROM businesses WHERE id=? AND user_id=?").bind(id, user.id).run();
+
+      if (existing.logo) {
+        const logoKey = extractB2Key(existing.logo);
+        if (logoKey) await b2DeleteObject(env, logoKey);
+      }
+      const oldGallery = safeParseImages(existing.images);
+      for (const imgUrl of oldGallery) {
+        const k = extractB2Key(imgUrl);
+        if (k) await b2DeleteObject(env, k);
+      }
+
       return json({ ok: true });
     }
 
@@ -839,14 +1216,75 @@ async function handle(request, env, url) {
     const nextPhone = "phone" in f ? f.phone : existing.phone;
     const nextEmail = "email" in f ? f.email : existing.email;
     if (!nextPhone && !nextEmail) throw bad("Keep at least one phone number or email address.");
-    if ("logo" in b) f.logo = cleanImageData(b.logo, "Logo");
-    if ("images" in b) f.images = JSON.stringify(cleanBusinessImages(b.images));
+
+    let oldLogoKeyToDelete = null;
+    if ("logo" in b) {
+      const rawLogo = b.logo;
+      if (!rawLogo) {
+        f.logo = "";
+        if (existing.logo) oldLogoKeyToDelete = extractB2Key(existing.logo);
+      } else if (typeof rawLogo === "string" && rawLogo.startsWith("/api/images/")) {
+        const k = extractB2Key(rawLogo);
+        if (!k) throw bad("Invalid logo reference.");
+        if (!k.startsWith(`businesses/${id}/`) && !k.startsWith(`users/${user.id}/`) && rawLogo.trim() !== existing.logo) {
+          throw bad("You do not have permission to use this logo reference.", 403);
+        }
+        f.logo = `/api/images/${k}`;
+        if (existing.logo && existing.logo !== f.logo) {
+          oldLogoKeyToDelete = extractB2Key(existing.logo);
+        }
+      } else {
+        const uploadedLogo = await processImageUpload(env, rawLogo, `businesses/${id}/logo`, "Logo");
+        f.logo = uploadedLogo;
+        if (existing.logo && existing.logo !== uploadedLogo) {
+          oldLogoKeyToDelete = extractB2Key(existing.logo);
+        }
+      }
+    }
+
+    const keysToDeleteFromGallery = [];
+    if ("images" in b) {
+      const rawList = cleanBusinessImages(b.images);
+      const oldGallery = safeParseImages(existing.images);
+      const oldGallerySet = new Set(oldGallery.map(extractB2Key).filter(Boolean));
+      const newUrls = [];
+      for (const item of rawList) {
+        if (item.startsWith("/api/images/")) {
+          const k = extractB2Key(item);
+          if (!k) throw bad("Invalid business image reference.");
+          if (!k.startsWith(`businesses/${id}/`) && !k.startsWith(`users/${user.id}/`) && !oldGallerySet.has(k)) {
+            throw bad("You do not have permission to use this image reference.", 403);
+          }
+          newUrls.push(`/api/images/${k}`);
+        } else {
+          const uploaded = await processImageUpload(env, item, `businesses/${id}/gallery`, "Business image");
+          if (uploaded) newUrls.push(uploaded);
+        }
+      }
+      f.images = JSON.stringify(newUrls);
+
+      const newKeySet = new Set(newUrls.map(extractB2Key).filter(Boolean));
+      for (const oldUrl of oldGallery) {
+        const oldKey = extractB2Key(oldUrl);
+        if (oldKey && !newKeySet.has(oldKey)) {
+          keysToDeleteFromGallery.push(oldKey);
+        }
+      }
+    }
 
     const keys = Object.keys(f);
     if (keys.length) {
       await env.DB.prepare(`UPDATE businesses SET ${keys.map((k) => k + "=?").join(",")}, updated_at=? WHERE id=? AND user_id=?`)
         .bind(...keys.map((k) => f[k]), Date.now(), id, user.id).run();
     }
+
+    if (oldLogoKeyToDelete) {
+      await b2DeleteObject(env, oldLogoKeyToDelete);
+    }
+    for (const k of keysToDeleteFromGallery) {
+      await b2DeleteObject(env, k);
+    }
+
     const fresh = await env.DB.prepare(
       "SELECT b.*, u.name AS owner_name, u.handle AS owner_handle FROM businesses b LEFT JOIN users u ON u.id=b.user_id WHERE b.id=?"
     ).bind(id).first();
@@ -891,14 +1329,37 @@ async function handle(request, env, url) {
     if (!PRODUCT_CATEGORIES.has(category)) throw bad("Choose a valid product category.");
     const condition = cleanText(b.condition, 20, "Condition");
     if (!PRODUCT_CONDITIONS.has(condition)) throw bad("Choose a valid condition (New or Resale).");
-    const images = cleanProductImages(b.images);
+    const rawImages = cleanProductImages(b.images);
     const published = b.published === false || b.published === 0 ? 0 : 1;
 
     const id = crypto.randomUUID();
-    const now = Date.now();
-    await env.DB.prepare(
-      "INSERT INTO products(id,business_id,user_id,name,description,price,currency,category,condition,images,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
-    ).bind(id, businessId, user.id, name, description, price, currency, category, condition, JSON.stringify(images), published, now, now).run();
+    const uploadedImages = [];
+    const newlyUploadedKeys = [];
+    try {
+      for (const rawImg of rawImages) {
+        if (rawImg.startsWith("/api/images/")) {
+          const k = extractB2Key(rawImg);
+          if (!k || !k.startsWith(`users/${user.id}/`)) throw bad("You do not have permission to use this image reference.", 403);
+          uploadedImages.push(`/api/images/${k}`);
+        } else {
+          const uploaded = await processImageUpload(env, rawImg, `products/${id}/img`, "Product image");
+          if (uploaded) {
+            uploadedImages.push(uploaded);
+            const pk = extractB2Key(uploaded);
+            if (pk) newlyUploadedKeys.push(pk);
+          }
+        }
+      }
+      if (!uploadedImages.length) throw bad("Add at least 1 product image.");
+
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO products(id,business_id,user_id,name,description,price,currency,category,condition,images,published,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      ).bind(id, businessId, user.id, name, description, price, currency, category, condition, JSON.stringify(uploadedImages), published, now, now).run();
+    } catch (err) {
+      for (const k of newlyUploadedKeys) await b2DeleteObject(env, k);
+      throw err;
+    }
 
     const fresh = await env.DB.prepare(
       "SELECT p.*, b.name AS business_name, b.category AS business_category, b.location AS business_location " +
@@ -916,6 +1377,13 @@ async function handle(request, env, url) {
 
     if (method === "DELETE") {
       await env.DB.prepare("DELETE FROM products WHERE id=? AND user_id=?").bind(id, user.id).run();
+
+      const oldProdImages = safeParseImages(existing.images);
+      for (const imgUrl of oldProdImages) {
+        const k = extractB2Key(imgUrl);
+        if (k) await b2DeleteObject(env, k);
+      }
+
       return json({ ok: true });
     }
 
@@ -950,8 +1418,36 @@ async function handle(request, env, url) {
       f.condition = cleanText(b.condition, 20, "Condition");
       if (!PRODUCT_CONDITIONS.has(f.condition)) throw bad("Choose a valid condition (New or Resale).");
     }
+
+    const keysToDeleteFromProdImages = [];
     if ("images" in b) {
-      f.images = JSON.stringify(cleanProductImages(b.images));
+      const rawList = cleanProductImages(b.images);
+      const oldProdImages = safeParseImages(existing.images);
+      const oldProdSet = new Set(oldProdImages.map(extractB2Key).filter(Boolean));
+      const newUrls = [];
+      for (const item of rawList) {
+        if (item.startsWith("/api/images/")) {
+          const k = extractB2Key(item);
+          if (!k) throw bad("Invalid product image reference.");
+          if (!k.startsWith(`products/${id}/`) && !k.startsWith(`users/${user.id}/`) && !oldProdSet.has(k)) {
+            throw bad("You do not have permission to use this image reference.", 403);
+          }
+          newUrls.push(`/api/images/${k}`);
+        } else {
+          const uploaded = await processImageUpload(env, item, `products/${id}/img`, "Product image");
+          if (uploaded) newUrls.push(uploaded);
+        }
+      }
+      if (!newUrls.length) throw bad("Add at least 1 product image.");
+      f.images = JSON.stringify(newUrls);
+
+      const newKeySet = new Set(newUrls.map(extractB2Key).filter(Boolean));
+      for (const oldUrl of oldProdImages) {
+        const oldKey = extractB2Key(oldUrl);
+        if (oldKey && !newKeySet.has(oldKey)) {
+          keysToDeleteFromProdImages.push(oldKey);
+        }
+      }
     }
     if ("published" in b) {
       f.published = b.published ? 1 : 0;
@@ -962,6 +1458,11 @@ async function handle(request, env, url) {
       await env.DB.prepare(`UPDATE products SET ${keys.map((k) => k + "=?").join(",")}, updated_at=? WHERE id=? AND user_id=?`)
         .bind(...keys.map((k) => f[k]), Date.now(), id, user.id).run();
     }
+
+    for (const k of keysToDeleteFromProdImages) {
+      await b2DeleteObject(env, k);
+    }
+
     const fresh = await env.DB.prepare(
       "SELECT p.*, b.name AS business_name, b.category AS business_category, b.location AS business_location " +
       "FROM products p INNER JOIN businesses b ON b.id=p.business_id WHERE p.id=?"

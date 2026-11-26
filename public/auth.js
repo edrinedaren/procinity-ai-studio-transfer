@@ -422,11 +422,11 @@
         }
         URL.revokeObjectURL(url);
         var out = c.toDataURL("image/jpeg", q);
-        while (out.length > 155 * 1024 && q > 0.45) {
+        while (out.length > 500 * 1024 && q > 0.5) {
           q -= 0.1;
           out = c.toDataURL("image/jpeg", q);
         }
-        if (out.length > 160 * 1024) {
+        if (out.length > 5 * 1024 * 1024) {
           if (window.toast) toast("That photo is too large. Pick a smaller one.");
           return;
         }

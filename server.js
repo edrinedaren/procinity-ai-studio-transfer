@@ -11,6 +11,26 @@ const __dirname = path.dirname(__filename);
 const PORT = 3000;
 const HOST = '0.0.0.0';
 
+// Load local .env if present
+const envFilePath = path.join(__dirname, '.env');
+if (fs.existsSync(envFilePath)) {
+  try {
+    const envContent = fs.readFileSync(envFilePath, 'utf-8');
+    for (const line of envContent.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx > 0) {
+        const k = trimmed.slice(0, eqIdx).trim();
+        const v = trimmed.slice(eqIdx + 1).trim().replace(/^['"](.*)['"]$/, '$1');
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+    }
+  } catch (e) {
+    console.warn('[AI Studio] Could not read .env file:', e.message);
+  }
+}
+
 // Ensure data directory exists
 const dbDir = path.join(__dirname, '.data');
 if (!fs.existsSync(dbDir)) {
@@ -125,13 +145,18 @@ const env = {
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
   MAIL_FROM: process.env.MAIL_FROM || '',
+  B2_APPLICATION_KEY_ID: process.env.B2_APPLICATION_KEY_ID || process.env.B2_KEY_ID || '',
+  B2_APPLICATION_KEY: process.env.B2_APPLICATION_KEY || '',
+  B2_BUCKET_NAME: process.env.B2_BUCKET_NAME || 'procinity-images-2026',
+  B2_ENDPOINT: process.env.B2_ENDPOINT || 'https://s3.eu-central-003.backblazeb2.com',
+  B2_REGION: process.env.B2_REGION || 'eu-central-003',
 };
 
 const app = express();
 app.set('trust proxy', true);
 
 // Parse raw body for /api routes to feed into Web Request
-app.use('/api', express.raw({ type: '*/*', limit: '10mb' }));
+app.use('/api', express.raw({ type: '*/*', limit: '25mb' }));
 
 // Forward /api requests to Cloudflare Worker backend
 app.use('/api', async (req, res, next) => {
