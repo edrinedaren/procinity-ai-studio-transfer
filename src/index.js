@@ -514,6 +514,18 @@ function publicProduct(p, viewer) {
     updated_at: p.updated_at,
   };
 }
+function publicBusinessPost(p, viewer) {
+  return {
+    id: p.id,
+    business_id: p.business_id,
+    user_id: p.user_id,
+    content: p.content || "",
+    image: (p.image && typeof p.image === "string" && p.image.startsWith("/api/images/")) ? p.image : "",
+    is_owner: !!(viewer && viewer.id === p.user_id),
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+  };
+}
 async function passkeyList(env, userId) {
   const r = await env.DB.prepare("SELECT id,label,created_at FROM passkeys WHERE user_id=? ORDER BY created_at").bind(userId).all();
   return r.results || [];
@@ -875,6 +887,16 @@ async function handle(request, env, url) {
     return json({ product: publicProduct(row, viewer) });
   }
 
+  if (path === "business-posts" && method === "GET") {
+    const bizId = String(url.searchParams.get("business_id") || "").trim();
+    if (!bizId) throw bad("Missing business_id.");
+    const r = await env.DB.prepare(
+      "SELECT * FROM business_posts WHERE business_id=? ORDER BY created_at DESC LIMIT 100"
+    ).bind(bizId).all();
+    const viewer = await currentUser(env, request);
+    return json({ posts: (r.results || []).map((p) => publicBusinessPost(p, viewer)) });
+  }
+
   // ===== everything below needs a session =====
   const user = await requireUser(env, request);
 
@@ -1041,8 +1063,10 @@ async function handle(request, env, url) {
     const oldAvatarKey = extractB2Key(user.avatar);
     const userBizs = await env.DB.prepare("SELECT logo, images FROM businesses WHERE user_id=?").bind(user.id).all();
     const userProds = await env.DB.prepare("SELECT images FROM products WHERE user_id=?").bind(user.id).all();
+    const userPosts = await env.DB.prepare("SELECT image FROM business_posts WHERE user_id=?").bind(user.id).all();
 
     await env.DB.batch([
+      env.DB.prepare("DELETE FROM business_posts WHERE user_id=?").bind(user.id),
       env.DB.prepare("DELETE FROM products WHERE user_id=?").bind(user.id),
       env.DB.prepare("DELETE FROM businesses WHERE user_id=?").bind(user.id),
       env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(user.id),
@@ -1063,6 +1087,9 @@ async function handle(request, env, url) {
       for (const imgUrl of safeParseImages(pRow.images)) {
         await b2DeleteObject(env, extractB2Key(imgUrl));
       }
+    }
+    for (const bpRow of (userPosts.results || [])) {
+      if (bpRow.image) await b2DeleteObject(env, extractB2Key(bpRow.image));
     }
 
     return json({ ok: true }, 200, { "set-cookie": sessionCookie(request, "", 0) });
@@ -1198,7 +1225,11 @@ async function handle(request, env, url) {
       if ((prodCnt && prodCnt.n) > 0) {
         throw bad("This business still has product listings. Delete its products first before deleting the business.", 409);
       }
-      await env.DB.prepare("DELETE FROM businesses WHERE id=? AND user_id=?").bind(id, user.id).run();
+      const oldPosts = await env.DB.prepare("SELECT image FROM business_posts WHERE business_id=?").bind(id).all();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM business_posts WHERE business_id=? AND user_id=?").bind(id, user.id),
+        env.DB.prepare("DELETE FROM businesses WHERE id=? AND user_id=?").bind(id, user.id),
+      ]);
 
       if (existing.logo) {
         const logoKey = extractB2Key(existing.logo);
@@ -1208,6 +1239,12 @@ async function handle(request, env, url) {
       for (const imgUrl of oldGallery) {
         const k = extractB2Key(imgUrl);
         if (k) await b2DeleteObject(env, k);
+      }
+      for (const bpRow of (oldPosts.results || [])) {
+        if (bpRow.image) {
+          const pk = extractB2Key(bpRow.image);
+          if (pk) await b2DeleteObject(env, pk);
+        }
       }
 
       return json({ ok: true });
@@ -1488,6 +1525,61 @@ async function handle(request, env, url) {
       "FROM products p INNER JOIN businesses b ON b.id=p.business_id WHERE p.id=?"
     ).bind(id).first();
     return json({ product: publicProduct(fresh, user) });
+  }
+
+  // --- authenticated business posts ---
+  if (path === "business-posts" && method === "POST") {
+    const b = await body();
+    await limit(env, "bpost:" + user.id, 60, 3600);
+    const businessId = cleanText(b.business_id, 100, "Business");
+    if (!businessId) throw bad("Missing business.");
+    const biz = await env.DB.prepare("SELECT id, user_id FROM businesses WHERE id=?").bind(businessId).first();
+    if (!biz) throw bad("Business not found.", 404);
+    if (biz.user_id !== user.id) throw bad("You do not have permission to post for this business.", 403);
+
+    const content = cleanText(b.content, 1000, "Post");
+    if (!content) throw bad("Write something for your post.");
+
+    const id = crypto.randomUUID();
+    let imageUrl = "";
+    let uploadedKey = null;
+    try {
+      if (b.image) {
+        const rawImg = String(b.image).trim();
+        if (rawImg.startsWith("/api/images/")) {
+          const k = extractB2Key(rawImg);
+          if (!k || !k.startsWith(`users/${user.id}/`)) throw bad("You do not have permission to use this image reference.", 403);
+          imageUrl = `/api/images/${k}`;
+        } else {
+          imageUrl = await processImageUpload(env, rawImg, `businesses/${businessId}/posts/${id}`, "Post image");
+          uploadedKey = extractB2Key(imageUrl);
+        }
+      }
+      const now = Date.now();
+      await env.DB.prepare(
+        "INSERT INTO business_posts(id,business_id,user_id,content,image,created_at,updated_at) VALUES(?,?,?,?,?,?,?)"
+      ).bind(id, businessId, user.id, content, imageUrl, now, now).run();
+    } catch (err) {
+      if (uploadedKey) await b2DeleteObject(env, uploadedKey);
+      throw err;
+    }
+
+    const fresh = await env.DB.prepare("SELECT * FROM business_posts WHERE id=?").bind(id).first();
+    return json({ post: publicBusinessPost(fresh, user) }, 201);
+  }
+
+  const bizPostMatch = path.match(/^business-posts\/([^/]+)$/);
+  if (bizPostMatch && method === "DELETE") {
+    const id = decodeURIComponent(bizPostMatch[1]);
+    const existing = await env.DB.prepare("SELECT * FROM business_posts WHERE id=?").bind(id).first();
+    if (!existing) throw bad("Post not found.", 404);
+    if (existing.user_id !== user.id) throw bad("You do not have permission to delete this post.", 403);
+    await env.DB.prepare("DELETE FROM business_posts WHERE id=? AND user_id=?").bind(id, user.id).run();
+    if (existing.image) {
+      const k = extractB2Key(existing.image);
+      if (k) await b2DeleteObject(env, k);
+    }
+    return json({ ok: true });
   }
 
   throw bad("Not found.", 404);

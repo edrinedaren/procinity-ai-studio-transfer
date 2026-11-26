@@ -1569,7 +1569,8 @@ $("cartBtn").onclick=function(){
 
     var contactInline = (active.phone || active.email)
       ? '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:13px">' +
-          (active.phone ? '<a href="tel:' + esc(active.phone) + '" style="color:var(--act);text-decoration:none;font-weight:600;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">' + esc(active.phone) + "</a>" : "") +
+          '<div class="name" style="font-size:14px;color:var(--act)">Contact info</div>' +
+          (active.phone ? '<a href="tel:' + esc(active.phone) + '" style="color:var(--mu);text-decoration:none;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">' + esc(active.phone) + "</a>" : "") +
           (active.email ? '<a href="mailto:' + esc(active.email) + '" style="color:var(--mu);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">' + esc(active.email) + "</a>" : "") +
         "</div>"
       : '<div style="flex:1"></div>';
@@ -1590,19 +1591,23 @@ $("cartBtn").onclick=function(){
     "</div>";
 
     var prodsBox = '<div id="myBizProducts" data-biz-id="' + esc(active.id) + '" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">' +
-      '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div></div>' +
-      '<p class="mu">Loading products...</p>' +
+      '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
+        '<button class="pri" onclick="window.openProductForm&&openProductForm(\'' + esc(active.id) + '\',null,function(){render()})" style="padding:6px 12px;font-size:13px">Add product</button>' +
+      '</div><p class="mu">Loading products...</p>' +
     "</div>";
 
-    var slotCard = (!isPremium && atLimit)
+    var postsBox = '<div id="myBizPosts" data-biz-id="' + esc(active.id) + '" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">' +
+      '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Posts</div>' +
+        '<button class="pri" onclick="window.openBizPostForm&&openBizPostForm(\'' + esc(active.id) + '\',function(){render()})" style="padding:6px 12px;font-size:13px">Add post</button>' +
+      '</div><p class="mu">Loading posts...</p>' +
+    "</div>";
+
+    var slotCard = isPremium
       ? '<div class="card pad" style="margin-top:16px">' +
-          '<div class="name" style="font-size:15px">Additional businesses</div>' +
-          '<div class="mu" style="margin-top:4px;font-size:13px">Free accounts can register 1 business. Registering additional businesses is a Premium-only feature.</div>' +
-        "</div>"
-      : '<div class="card pad" style="margin-top:16px">' +
           '<div class="row"><div><div class="name" style="font-size:15px">Your businesses</div><div class="mu" style="margin-top:2px">' + list.length + " of " + limit + " businesses registered</div></div></div>" +
           '<button class="sec" ' + (atLimit ? 'disabled style="width:100%;margin-top:12px;opacity:.5;cursor:default"' : 'onclick="window._bizNew()" style="width:100%;margin-top:12px"') + ">" + (atLimit ? "Limit reached (" + limit + "/" + limit + ")" : "Register another business") + "</button>" +
-        "</div>";
+        "</div>"
+      : "";
 
     clearTimeout(_bizProdTimer);
     var bizSnapshot = active;
@@ -1611,9 +1616,13 @@ $("cartBtn").onclick=function(){
       if (el && el.getAttribute("data-biz-id") === bizSnapshot.id && window.loadBizProductsInto) {
         window.loadBizProductsInto(el, bizSnapshot);
       }
+      var postsEl = $("myBizPosts");
+      if (postsEl && postsEl.getAttribute("data-biz-id") === bizSnapshot.id && window.loadBizPostsInto) {
+        window.loadBizPostsInto(postsEl, bizSnapshot);
+      }
     }, 0);
 
-    return switcherHTML + galleryHTML + channelHeader + prodsBox + slotCard;
+    return switcherHTML + galleryHTML + channelHeader + prodsBox + postsBox + slotCard;
   };
   window._bizRetryMy = function () { _biz.my = null; loadMyBusinesses(true); render(); };
 
@@ -2563,7 +2572,13 @@ $("cartBtn").onclick=function(){
 
   window.loadBizProductsInto = function (el, biz, onMutated) {
     if (!el || !biz || !biz.id) return;
-    el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div></div><p class="mu">Loading products...</p>';
+    el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
+      (biz.is_owner ? '<button id="bpAddProd" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
+      '</div><p class="mu">Loading products...</p>';
+    var addTop = el.querySelector("#bpAddProd");
+    if (addTop) addTop.onclick = function () {
+      openProductForm(biz.id, null, function () { if (onMutated) onMutated(); render(); });
+    };
 
     var req = biz.is_owner
       ? PX.api("GET", "products/my?business_id=" + encodeURIComponent(biz.id))
@@ -2573,13 +2588,16 @@ $("cartBtn").onclick=function(){
     req.then(function (res) {
       if (!document.body.contains(el)) return;
       if (!res.ok) {
-        el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div></div><p class="mu" style="color:#ff6b6b">' + esc((res.d && res.d.error) || "Could not load products.") + "</p>";
+        el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
+          (biz.is_owner ? '<button id="bpAddProd2" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
+          '</div><p class="mu" style="color:#ff6b6b">' + esc((res.d && res.d.error) || "Could not load products.") + "</p>";
       } else {
         var list = dedupeProducts((res.d && res.d.products) || []);
-        var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products <span class="mu" style="font-weight:500;font-size:14px">(' + list.length + ")</span></div></div>";
-        var addBottom = biz.is_owner ? '<button id="bpAddProd2" class="pri" style="width:100%;margin-top:12px">Add product</button>' : "";
+        var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products <span class="mu" style="font-weight:500;font-size:14px">(' + list.length + ")</span></div>" +
+          (biz.is_owner ? '<button id="bpAddProd2" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
+          "</div>";
         if (!list.length) {
-          el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "No products listed under this business yet." : "No published products listed by this business yet.") + "</p></div>" + addBottom;
+          el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "No products listed under this business yet." : "No published products listed by this business yet.") + "</p></div>";
         } else {
           el.innerHTML = header + '<div style="display:grid;gap:10px">' + list.map(function (p) {
             var img0 = Array.isArray(p.images) && p.images.length ? safeImgSrc(p.images[0]) : "";
@@ -2602,7 +2620,7 @@ $("cartBtn").onclick=function(){
                   "</div>"
                 : "") +
             "</div>";
-          }).join("") + "</div>" + addBottom;
+          }).join("") + "</div>";
 
           var byId = {};
           list.forEach(function (p) { byId[p.id] = p; });
@@ -2637,6 +2655,225 @@ $("cartBtn").onclick=function(){
       if (!document.body.contains(el)) return;
       el.innerHTML = '<div class="name" style="font-size:17px;margin-bottom:8px">Products</div><p class="mu">Could not load products.</p>';
     });
+  };
+})();
+
+/* ---------- Business Posts (Owner Latest Post & Reveal All) ---------- */
+(function () {
+  var expandedMap = {};
+
+  function safePostImg(s) {
+    if (typeof s !== "string" || !s) return "";
+    if (s.startsWith("/api/images/") || s.startsWith("/images/") || s.startsWith("/assets/")) return s;
+    if (/^https?:\/\//i.test(s)) return s;
+    return /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(s) ? s : "";
+  }
+
+  function postAgo(ts) {
+    var diff = Math.max(0, Math.floor((Date.now() - Number(ts || 0)) / 1000));
+    if (diff < 60) return "Just now";
+    if (diff < 3600) return Math.floor(diff / 60) + "m";
+    if (diff < 86400) return Math.floor(diff / 3600) + "h";
+    if (diff < 604800) return Math.floor(diff / 86400) + "d";
+    try { return new Date(Number(ts)).toLocaleDateString(); } catch (e) { return Math.floor(diff / 86400) + "d"; }
+  }
+
+  function confirmDeleteBizPost(post, onDeleted) {
+    var ov = document.createElement("div");
+    ov.style.cssText = "position:fixed;inset:0;z-index:65;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:24px";
+    ov.innerHTML = '<div role="dialog" aria-modal="true" style="width:100%;max-width:340px;background:var(--bg);border:1px solid var(--bd);border-radius:18px;padding:20px">' +
+      '<div class="name" style="font-size:18px;line-height:1.3">Delete post?</div>' +
+      '<p class="mu" style="margin:8px 0 0;font-size:14px">This removes the post permanently.</p>' +
+      '<div id="bpdErr" style="color:#ff6b6b;font-size:13px;margin-top:10px"></div>' +
+      '<div style="display:flex;gap:10px;margin-top:18px"><button class="sec" data-x="c" style="flex:1;border-radius:999px;padding:9px;font-size:15px">Cancel</button><button id="bpdGo" style="flex:1;border:0;border-radius:999px;padding:9px;font-size:15px;font-weight:600;background:#e5484d;color:#fff;cursor:pointer">Delete</button></div></div>';
+    document.body.appendChild(ov);
+    ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+    ov.querySelector('[data-x="c"]').onclick = function () { ov.remove(); };
+    ov.querySelector("#bpdGo").onclick = function () {
+      var btn = this; btn.disabled = true; btn.textContent = "Deleting...";
+      PX.api("DELETE", "business-posts/" + encodeURIComponent(post.id)).then(function (r) {
+        if (!r.ok) { btn.disabled = false; btn.textContent = "Delete"; ov.querySelector("#bpdErr").textContent = (r.d && r.d.error) || "Could not delete post."; return; }
+        ov.remove();
+        toast("Post deleted");
+        if (onDeleted) onDeleted();
+      });
+    };
+  }
+
+  function renderPostBodyHTML(biz, post) {
+    var logoSrc = safePostImg(biz && biz.logo);
+    var postImg = safePostImg(post && post.image);
+    return '<div style="display:flex;align-items:center;gap:10px">' +
+        (logoSrc ? '<img src="' + esc(logoSrc) + '" alt="" style="width:36px;height:36px;border-radius:10px;object-fit:cover;flex:none;display:block;border:1px solid var(--bd)">' : "") +
+        '<div style="min-width:0;flex:1">' +
+          '<div class="name" style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc((biz && biz.name) || "Business") + "</div>" +
+          '<div class="mu" style="font-size:12px">' + esc(postAgo(post.created_at)) + "</div>" +
+        "</div>" +
+      "</div>" +
+      '<div style="margin-top:10px;line-height:1.5;white-space:pre-wrap;word-break:break-word">' + esc(post.content || "") + "</div>" +
+      (postImg ? '<img src="' + esc(postImg) + '" alt="" style="width:100%;height:auto;border-radius:10px;margin-top:10px;display:block;border:1px solid var(--bd)">' : "");
+  }
+
+  window.openBizPostForm = function (bizOrId, onSaved) {
+    var bizId = typeof bizOrId === "object" && bizOrId ? bizOrId.id : String(bizOrId || "");
+    if (!bizId) return;
+    if (!window.PX || !PX.u) {
+      authRun("Sign in to publish a post.", function () { openBizPostForm(bizOrId, onSaved); });
+      return;
+    }
+    var old = $("bizPostFormPage"); if (old) old.remove();
+    var img = "";
+    var o = document.createElement("div");
+    o.id = "bizPostFormPage";
+    o.style.cssText = "position:fixed;inset:0;z-index:48;background:var(--bg);overflow:auto;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)";
+    o.innerHTML = '<div style="max-width:520px;margin:0 auto;padding:12px 14px 40px">' +
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">' +
+        '<button id="bpfBack" aria-label="Back" style="border:0;background:none;color:var(--tx);padding:4px;line-height:0;cursor:pointer">' + BK + "</button>" +
+        '<div class="name" style="font-size:20px">New post</div>' +
+      "</div>" +
+      '<form id="bpfForm" novalidate style="display:grid;gap:14px">' +
+        '<div><div class="row" style="margin-bottom:4px"><span class="mu">Post *</span><span id="bpfCt" class="mu" style="font-size:12px">0/1000</span></div>' +
+          '<textarea id="bpfText" rows="5" maxlength="1000" placeholder="Share an update, offer or announcement..."></textarea></div>' +
+        '<div>' +
+          '<div class="row" style="margin-bottom:8px"><span class="mu">Photo (optional)</span><button type="button" id="bpfImgPick" class="sec" style="padding:6px 12px;font-size:13px">Add photo</button></div>' +
+          '<div id="bpfImgBox"></div>' +
+        "</div>" +
+        '<div id="bpfErr" style="color:#ff6b6b;font-size:14px"></div>' +
+        '<button id="bpfSubmit" type="submit" class="pri" style="width:100%;padding:13px;font-size:16px">Publish post</button>' +
+      "</form>" +
+      "</div>";
+    document.body.appendChild(o);
+
+    function drawImg() {
+      var box = o.querySelector("#bpfImgBox");
+      var pick = o.querySelector("#bpfImgPick");
+      pick.textContent = img ? "Change photo" : "Add photo";
+      if (!img) { box.innerHTML = ""; return; }
+      box.innerHTML = '<div style="position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--bd)">' +
+        '<img src="' + esc(img) + '" alt="" style="width:100%;height:auto;display:block">' +
+        '<button type="button" id="bpfImgRm" aria-label="Remove photo" style="position:absolute;top:8px;right:8px;width:26px;height:26px;border:0;border-radius:50%;background:rgba(0,0,0,.75);color:#fff;font-size:16px;line-height:1;padding:0;cursor:pointer">&times;</button>' +
+      "</div>";
+      o.querySelector("#bpfImgRm").onclick = function () { img = ""; drawImg(); };
+    }
+
+    function updateCt() {
+      o.querySelector("#bpfCt").textContent = o.querySelector("#bpfText").value.length + "/1000";
+    }
+
+    drawImg();
+    updateCt();
+
+    o.querySelector("#bpfBack").onclick = function () { o.remove(); };
+    o.querySelector("#bpfText").oninput = updateCt;
+    o.querySelector("#bpfImgPick").onclick = function () {
+      PX.pickPhoto(function (d) { img = d; drawImg(); }, { size: 720, fit: true, quality: 0.82 });
+    };
+    o.querySelector("#bpfForm").onsubmit = function (ev) {
+      ev.preventDefault();
+      var err = o.querySelector("#bpfErr");
+      var btn = o.querySelector("#bpfSubmit");
+      err.textContent = "";
+      var content = o.querySelector("#bpfText").value.trim();
+      if (!content) { err.textContent = "Write something for your post."; o.querySelector("#bpfText").focus(); return; }
+      btn.disabled = true;
+      btn.textContent = "Publishing...";
+      PX.api("POST", "business-posts", { business_id: bizId, content: content, image: img }).then(function (r) {
+        if (!r.ok) {
+          btn.disabled = false;
+          btn.textContent = "Publish post";
+          err.textContent = (r.d && r.d.error) || "Could not publish post.";
+          return;
+        }
+        expandedMap[bizId] = false;
+        o.remove();
+        toast("Post published");
+        if (onSaved) onSaved(r.d && r.d.post);
+      });
+    };
+  };
+
+  window.loadBizPostsInto = function (el, biz, onMutated) {
+    if (!el || !biz || !biz.id) return;
+    el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Posts</div>' +
+      (biz.is_owner ? '<button id="bpAddPost" class="pri" style="padding:6px 12px;font-size:13px">Add post</button>' : "") +
+      '</div><p class="mu">Loading posts...</p>';
+    var addTop = el.querySelector("#bpAddPost");
+    if (addTop) addTop.onclick = function () {
+      openBizPostForm(biz.id, function () { if (onMutated) onMutated(); render(); });
+    };
+
+    function drawPosts(list) {
+      var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Posts <span class="mu" style="font-weight:500;font-size:14px">(' + list.length + ")</span></div>" +
+        (biz.is_owner ? '<button id="bpAddPost2" class="pri" style="padding:6px 12px;font-size:13px">Add post</button>' : "") +
+        "</div>";
+      if (!list.length) {
+        el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">No posts yet.</p></div>';
+      } else {
+        var hasOthers = list.length > 1;
+        var showAll = hasOthers && !!expandedMap[biz.id];
+        var visible = showAll ? list : [list[0]];
+        el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p, idx) {
+          var leftAction = (idx === 0 && hasOthers)
+            ? (showAll
+                ? '<button type="button" id="bpShowLessPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:var(--act);cursor:pointer">Show less</button>'
+                : '<button type="button" id="bpViewAllPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:var(--act);cursor:pointer">View all</button>')
+            : "<span></span>";
+          var rightAction = biz.is_owner
+            ? '<button type="button" data-bpdel="' + esc(p.id) + '" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;color:#ff6b6b;cursor:pointer">Delete</button>'
+            : "";
+          var footer = ((idx === 0 && hasOthers) || biz.is_owner)
+            ? '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">' +
+                leftAction + rightAction +
+              "</div>"
+            : "";
+          return '<div class="card pad">' + renderPostBodyHTML(biz, p) + footer + "</div>";
+        }).join("") + "</div>";
+
+        var viewAllBtn = el.querySelector("#bpViewAllPosts");
+        if (viewAllBtn) viewAllBtn.onclick = function () {
+          expandedMap[biz.id] = true;
+          drawPosts(list);
+        };
+        var showLessBtn = el.querySelector("#bpShowLessPosts");
+        if (showLessBtn) showLessBtn.onclick = function () {
+          expandedMap[biz.id] = false;
+          drawPosts(list);
+        };
+        var byId = {};
+        list.forEach(function (p) { byId[p.id] = p; });
+        Array.prototype.forEach.call(el.querySelectorAll("[data-bpdel]"), function (btn) {
+          btn.onclick = function () {
+            var p = byId[btn.getAttribute("data-bpdel")];
+            if (!p) return;
+            confirmDeleteBizPost(p, function () { if (onMutated) onMutated(); render(); });
+          };
+        });
+      }
+      var add2 = el.querySelector("#bpAddPost2");
+      if (add2) add2.onclick = function () {
+        openBizPostForm(biz.id, function () { if (onMutated) onMutated(); render(); });
+      };
+    }
+
+    fetch("/api/business-posts?business_id=" + encodeURIComponent(biz.id), { credentials: "same-origin" })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (res) {
+        if (!document.body.contains(el)) return;
+        if (!res.ok) {
+          el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Posts</div>' +
+            (biz.is_owner ? '<button id="bpAddPost2" class="pri" style="padding:6px 12px;font-size:13px">Add post</button>' : "") +
+            '</div><p class="mu" style="color:#ff6b6b">' + esc((res.d && res.d.error) || "Could not load posts.") + "</p>";
+          var addErr = el.querySelector("#bpAddPost2");
+          if (addErr) addErr.onclick = function () {
+            openBizPostForm(biz.id, function () { if (onMutated) onMutated(); render(); });
+          };
+        } else {
+          drawPosts((res.d && res.d.posts) || []);
+        }
+      }, function () {
+        if (!document.body.contains(el)) return;
+        el.innerHTML = '<div class="name" style="font-size:17px;margin-bottom:8px">Posts</div><p class="mu">Could not load posts.</p>';
+      });
   };
 })();
 
