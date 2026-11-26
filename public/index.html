@@ -2620,18 +2620,19 @@ $("cartBtn").onclick=function(){
             var hasOthers = items.length > 1;
             var showAll = !latestOnlyMode || (hasOthers && !!prodExpandedMap[biz.id]);
             var visible = showAll ? items : [items[0]];
-            el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p, idx) {
+            var chevRight = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+            var outsideViewAllProds = latestOnlyMode
+              ? '<div style="display:flex;justify-content:flex-end;margin-top:8px">' +
+                  (hasOthers && prodExpandedMap[biz.id]
+                    ? '<button type="button" id="bpShowLessProds" style="border:0;background:none;padding:2px 0;font:inherit;font-size:14px;font-weight:600;color:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:3px">Show less</button>'
+                    : '<button type="button" id="bpViewAllProds" style="border:0;background:none;padding:2px 0;font:inherit;font-size:14px;font-weight:600;color:' + (hasOthers ? "#fff" : "var(--mu)") + ';cursor:' + (hasOthers ? "pointer" : "default") + ';display:inline-flex;align-items:center;gap:3px">View all' + chevRight + "</button>") +
+                "</div>"
+              : "";
+            el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p) {
               var img0 = Array.isArray(p.images) && p.images.length ? safeImgSrc(p.images[0]) : "";
               var thumb = img0
                 ? '<img src="' + esc(img0) + '" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:cover;flex:none;display:block;border:1px solid var(--bd)">'
                 : '<div style="width:56px;height:56px;border-radius:10px;flex:none;background:#141416;border:1px solid var(--bd)"></div>';
-              var viewAllRow = (latestOnlyMode && idx === 0)
-                ? '<div style="display:flex;align-items:center;justify-content:flex-start;margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">' +
-                    (hasOthers && prodExpandedMap[biz.id]
-                      ? '<button type="button" id="bpShowLessProds" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer">Show less</button>'
-                      : '<button type="button" id="bpViewAllProds" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:' + (hasOthers ? "#fff" : "var(--mu)") + ';cursor:' + (hasOthers ? "pointer" : "default") + '">View all</button>') +
-                  "</div>"
-                : "";
               return '<div class="card pad" style="padding:10px 12px">' +
                 '<div data-bpv="' + esc(p.id) + '" style="display:flex;align-items:center;gap:12px;cursor:pointer">' +
                   thumb +
@@ -2646,9 +2647,8 @@ $("cartBtn").onclick=function(){
                       '<button class="sec" data-bpt="' + esc(p.id) + '" style="flex:1;padding:6px 10px;font-size:13px">' + (p.published ? "Unpublish" : "Publish") + "</button>" +
                     "</div>"
                   : "") +
-                viewAllRow +
               "</div>";
-            }).join("") + "</div>";
+            }).join("") + "</div>" + outsideViewAllProds;
 
             var viewAllProdsBtn = el.querySelector("#bpViewAllProds");
             if (viewAllProdsBtn) viewAllProdsBtn.onclick = function () {
@@ -2852,22 +2852,20 @@ $("cartBtn").onclick=function(){
         var hasOthers = list.length > 1;
         var showAll = hasOthers && !!expandedMap[biz.id];
         var visible = showAll ? list : [list[0]];
-        el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p, idx) {
-          var leftAction = (idx === 0)
-            ? (showAll
-                ? '<button type="button" id="bpShowLessPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:#fff;cursor:pointer">Show less</button>'
-                : '<button type="button" id="bpViewAllPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;font-weight:600;color:' + (hasOthers ? "#fff" : "var(--mu)") + ';cursor:' + (hasOthers ? "pointer" : "default") + '">View all</button>')
-            : "<span></span>";
-          var rightAction = biz.is_owner
-            ? '<button type="button" data-bpdel="' + esc(p.id) + '" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;color:#ff6b6b;cursor:pointer">Delete</button>'
-            : "";
-          var footer = (idx === 0 || biz.is_owner)
-            ? '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid var(--bd)">' +
-                leftAction + rightAction +
+        var chevRight = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+        var outsideViewAllPosts = '<div style="display:flex;justify-content:flex-end;margin-top:8px">' +
+          (showAll
+            ? '<button type="button" id="bpShowLessPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:14px;font-weight:600;color:#fff;cursor:pointer;display:inline-flex;align-items:center;gap:3px">Show less</button>'
+            : '<button type="button" id="bpViewAllPosts" style="border:0;background:none;padding:2px 0;font:inherit;font-size:14px;font-weight:600;color:' + (hasOthers ? "#fff" : "var(--mu)") + ';cursor:' + (hasOthers ? "pointer" : "default") + ';display:inline-flex;align-items:center;gap:3px">View all' + chevRight + "</button>") +
+        "</div>";
+        el.innerHTML = header + '<div style="display:grid;gap:10px">' + visible.map(function (p) {
+          var footer = biz.is_owner
+            ? '<div style="display:flex;align-items:center;justify-content:flex-end;margin-top:10px">' +
+                '<button type="button" data-bpdel="' + esc(p.id) + '" style="border:0;background:none;padding:2px 0;font:inherit;font-size:13px;color:#ff6b6b;cursor:pointer">Delete</button>' +
               "</div>"
             : "";
           return '<div class="card pad">' + renderPostBodyHTML(biz, p) + footer + "</div>";
-        }).join("") + "</div>";
+        }).join("") + "</div>" + outsideViewAllPosts;
 
         var viewAllBtn = el.querySelector("#bpViewAllPosts");
         if (viewAllBtn) viewAllBtn.onclick = function () {
