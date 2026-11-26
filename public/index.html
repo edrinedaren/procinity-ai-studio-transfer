@@ -1548,55 +1548,52 @@ $("cartBtn").onclick=function(){
     }
 
     var imgs = (active.images || []).map(safeImgSrc).filter(Boolean);
+    var bannerMargin = list.length > 1 ? "margin:0 -14px 2px" : "margin:-12px -14px 2px";
     var galleryHTML = "";
     if (imgs.length > 1) {
-      galleryHTML = '<div class="card" style="' + (list.length > 1 ? "" : "margin-top:-10px;") + 'margin-bottom:12px"><div style="position:relative;aspect-ratio:16/10">' +
+      galleryHTML = '<div style="position:relative;aspect-ratio:16/9;overflow:hidden;' + bannerMargin + '">' +
         '<div onscroll="accScroll(this)" style="display:flex;height:100%;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none">' +
           imgs.map(function (src) { return '<img src="' + esc(src) + '" alt="" draggable="false" style="flex:none;width:100%;height:100%;object-fit:cover;scroll-snap-align:center;display:block">'; }).join("") +
-        '</div><div class="ac" style="position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:99px;background:rgba(0,0,0,.6);color:#fff;font-size:13px;font-weight:600;pointer-events:none">1/' + imgs.length + "</div></div></div>";
+        '</div><div class="ac" style="position:absolute;top:10px;right:10px;padding:4px 10px;border-radius:99px;background:rgba(0,0,0,.6);color:#fff;font-size:13px;font-weight:600;pointer-events:none">1/' + imgs.length + "</div></div>";
     } else if (imgs.length === 1) {
-      galleryHTML = '<div class="card" style="' + (list.length > 1 ? "" : "margin-top:-10px;") + 'margin-bottom:12px"><div style="aspect-ratio:16/10;overflow:hidden"><img src="' + esc(imgs[0]) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div></div>';
+      galleryHTML = '<div style="aspect-ratio:16/9;overflow:hidden;' + bannerMargin + '"><img src="' + esc(imgs[0]) + '" alt="" style="width:100%;height:100%;object-fit:cover;display:block"></div>';
     }
 
-    var headTopStyle = (!galleryHTML && list.length <= 1) ? "margin-top:-10px" : "";
-    var channelHeader = '<div class="card pad" style="' + headTopStyle + '">' +
-      '<div style="display:flex;align-items:center;gap:14px">' +
-        bizLogoHTML(active, 68) +
-        '<div style="flex:1;min-width:0">' +
-          '<div class="name" style="font-size:20px;font-weight:700;word-break:break-word">' + esc(active.name) + "</div>" +
-          '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:6px">' +
-            '<span style="font-size:12px;font-weight:600;color:var(--act);border:1px solid var(--ac);padding:2px 9px;border-radius:99px">' + esc(active.category) + "</span>" +
-            '<span class="mu" style="display:inline-flex;align-items:center;gap:4px">' + pinSvg(14) + esc(active.location) + "</span>" +
-          "</div>" +
-        "</div>" +
+    var logoSrc = safeImgSrc(active.logo);
+    var titleLeft = logoSrc
+      ? '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0">' +
+          '<img src="' + esc(logoSrc) + '" alt="" style="width:52px;height:52px;border-radius:14px;object-fit:cover;flex:none;display:block;border:1px solid var(--bd)">' +
+          '<div class="name" style="font-size:22px;font-weight:700;word-break:break-word;min-width:0">' + esc(active.name) + "</div>" +
+        "</div>"
+      : '<div class="name" style="font-size:22px;font-weight:700;word-break:break-word;flex:1;min-width:0">' + esc(active.name) + "</div>";
+
+    var contactInline = (active.phone || active.email)
+      ? '<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;font-size:13px">' +
+          (active.phone ? '<a href="tel:' + esc(active.phone) + '" style="color:var(--act);text-decoration:none;font-weight:600;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis">' + esc(active.phone) + "</a>" : "") +
+          (active.email ? '<a href="mailto:' + esc(active.email) + '" style="color:var(--mu);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%">' + esc(active.email) + "</a>" : "") +
+        "</div>"
+      : '<div style="flex:1"></div>';
+
+    var ratingVal = active.rating != null ? Number(active.rating).toFixed(1) : "0.0";
+    var channelHeader = '<div style="padding:' + (galleryHTML ? "4px 0 0" : (list.length > 1 ? "2px 0 0" : "0")) + '">' +
+      '<div class="row" style="align-items:center">' +
+        titleLeft +
+        '<span style="flex:none;border:1.5px solid var(--ac);color:var(--act);border-radius:999px;padding:3px 10px;font-size:13px">' + esc(active.category) + "</span>" +
       "</div>" +
-      '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap">' +
-        '<button class="pri" onclick="window._bizEdit(\'' + esc(active.id) + '\')" style="flex:1">Edit</button>' +
-        '<button class="sec" onclick="window.openProductForm&&openProductForm(\'' + esc(active.id) + '\',null,function(){render()})" style="flex:1">Add product</button>' +
+      '<div class="mu" style="margin-top:6px;font-size:15px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+        '<span><span style="color:var(--ac)">★</span> ' + esc(ratingVal) + "</span>" +
+        '<span style="display:inline-flex;align-items:center;gap:4px">' + pinSvg(16) + esc(active.location) + "</span>" +
+      "</div>" +
+      (active.description ? '<p style="margin:10px 0 0;line-height:1.5;white-space:pre-wrap">' + esc(active.description) + "</p>" : "") +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">' +
+        contactInline +
         '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none">Share</button>' +
-        '<button class="sec" onclick="window._bizDelete(\'' + esc(active.id) + '\')" style="flex:none;color:#ff6b6b">Delete</button>' +
       "</div>" +
     "</div>";
 
-    var aboutCard = active.description
-      ? '<div class="card pad" style="margin-top:12px">' +
-          '<div class="name" style="font-size:15px;margin-bottom:6px">About</div>' +
-          '<p style="margin:0;line-height:1.55;white-space:pre-wrap">' + esc(active.description) + "</p>" +
-        "</div>"
-      : "";
-
-    var contactCard = (active.phone || active.email)
-      ? '<div class="card pad" style="margin-top:12px;display:grid;gap:10px">' +
-          '<div class="name" style="font-size:15px">Contact information</div>' +
-          (active.phone ? '<a href="tel:' + esc(active.phone) + '" style="display:flex;align-items:center;justify-content:space-between;color:var(--act);text-decoration:none;font-size:15px"><span>Phone</span><b>' + esc(active.phone) + "</b></a>" : "") +
-          (active.email ? '<a href="mailto:' + esc(active.email) + '" style="display:flex;align-items:center;justify-content:space-between;color:var(--act);text-decoration:none;font-size:15px"><span>Email</span><b>' + esc(active.email) + "</b></a>" : "") +
-        "</div>"
-      : "";
-
-    var prodsBox = '<div id="myBizProducts" data-biz-id="' + esc(active.id) + '" style="margin-top:16px">' +
-      '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
-        '<button class="pri" onclick="window.openProductForm&&openProductForm(\'' + esc(active.id) + '\',null,function(){render()})" style="padding:6px 12px;font-size:13px">Add product</button>' +
-      '</div><p class="mu">Loading products...</p>' +
+    var prodsBox = '<div id="myBizProducts" data-biz-id="' + esc(active.id) + '" style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">' +
+      '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div></div>' +
+      '<p class="mu">Loading products...</p>' +
     "</div>";
 
     var slotCard = (!isPremium && atLimit)
@@ -1618,7 +1615,7 @@ $("cartBtn").onclick=function(){
       }
     }, 0);
 
-    return switcherHTML + galleryHTML + channelHeader + aboutCard + contactCard + prodsBox + slotCard;
+    return switcherHTML + galleryHTML + channelHeader + prodsBox + slotCard;
   };
   window._bizRetryMy = function () { _biz.my = null; loadMyBusinesses(true); render(); };
 
@@ -1668,11 +1665,14 @@ $("cartBtn").onclick=function(){
         '<div class="name" style="font-size:20px">' + (isEdit ? "Edit business" : "Register a business") + "</div>" +
       "</div>" +
       '<form id="bfForm" novalidate style="display:grid;gap:14px">' +
-        '<div style="display:flex;align-items:center;gap:14px">' +
-          '<div id="bfLogoBox"></div>' +
-          '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start">' +
-            '<button type="button" id="bfLogoPick" class="sec" style="padding:7px 12px;font-size:14px">' + (logo ? "Change logo" : "Upload logo") + "</button>" +
-            '<button type="button" id="bfLogoRm" style="border:0;background:none;color:var(--mu);font:inherit;font-size:13px;padding:0;cursor:pointer;' + (logo ? "" : "display:none") + '">Remove logo</button>' +
+        '<div>' +
+          '<div class="mu" style="margin-bottom:6px">Business logo (optional)</div>' +
+          '<div style="display:flex;align-items:center;gap:14px">' +
+            '<div id="bfLogoBox"></div>' +
+            '<div style="display:flex;flex-direction:column;gap:6px;align-items:flex-start">' +
+              '<button type="button" id="bfLogoPick" class="sec" style="padding:7px 12px;font-size:14px">' + (logo ? "Change logo" : "Upload logo") + "</button>" +
+              '<button type="button" id="bfLogoRm" style="border:0;background:none;color:var(--mu);font:inherit;font-size:13px;padding:0;cursor:pointer;' + (logo ? "" : "display:none") + '">Remove logo</button>' +
+            "</div>" +
           "</div>" +
         "</div>" +
         '<div><div class="mu" style="margin-bottom:4px">Business name *</div><input id="bfName" maxlength="80" placeholder="e.g. Kampala Roast Coffee" value="' + esc(existing ? existing.name : "") + '"></div>' +
@@ -2565,13 +2565,7 @@ $("cartBtn").onclick=function(){
 
   window.loadBizProductsInto = function (el, biz, onMutated) {
     if (!el || !biz || !biz.id) return;
-    el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
-      (biz.is_owner ? '<button id="bpAddProd" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
-      '</div><p class="mu">Loading products...</p>';
-    var addTop = el.querySelector("#bpAddProd");
-    if (addTop) addTop.onclick = function () {
-      openProductForm(biz.id, null, function () { if (onMutated) onMutated(); render(); });
-    };
+    el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div></div><p class="mu">Loading products...</p>';
 
     var req = biz.is_owner
       ? PX.api("GET", "products/my?business_id=" + encodeURIComponent(biz.id))
@@ -2580,15 +2574,14 @@ $("cartBtn").onclick=function(){
 
     req.then(function (res) {
       if (!document.body.contains(el)) return;
-      var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div>' +
-        (biz.is_owner ? '<button id="bpAddProd2" class="pri" style="padding:6px 12px;font-size:13px">Add product</button>' : "") +
-        "</div>";
       if (!res.ok) {
-        el.innerHTML = header + '<p class="mu" style="color:#ff6b6b">' + esc((res.d && res.d.error) || "Could not load products.") + "</p>";
+        el.innerHTML = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products</div></div><p class="mu" style="color:#ff6b6b">' + esc((res.d && res.d.error) || "Could not load products.") + "</p>";
       } else {
         var list = dedupeProducts((res.d && res.d.products) || []);
+        var header = '<div class="row" style="margin-bottom:10px"><div class="name" style="font-size:17px">Products <span class="mu" style="font-weight:500;font-size:14px">(' + list.length + ")</span></div></div>";
+        var addBottom = biz.is_owner ? '<button id="bpAddProd2" class="pri" style="width:100%;margin-top:12px">Add product</button>' : "";
         if (!list.length) {
-          el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "No products listed under this business yet." : "No published products listed by this business yet.") + "</p></div>";
+          el.innerHTML = header + '<div class="card pad"><p class="mu" style="margin:0">' + (biz.is_owner ? "No products listed under this business yet." : "No published products listed by this business yet.") + "</p></div>" + addBottom;
         } else {
           el.innerHTML = header + '<div style="display:grid;gap:10px">' + list.map(function (p) {
             var img0 = Array.isArray(p.images) && p.images.length ? safeImgSrc(p.images[0]) : "";
@@ -2611,7 +2604,7 @@ $("cartBtn").onclick=function(){
                   "</div>"
                 : "") +
             "</div>";
-          }).join("") + "</div>";
+          }).join("") + "</div>" + addBottom;
 
           var byId = {};
           list.forEach(function (p) { byId[p.id] = p; });
