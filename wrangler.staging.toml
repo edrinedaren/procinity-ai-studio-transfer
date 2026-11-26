@@ -1,0 +1,23 @@
+
+name = "procinity-staging"
+main = "src/index.js"
+compatibility_date = "2025-06-01"
+keep_vars = true
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "procinity-staging"
+database_id = "ca767e0a-986d-4cf3-a3e2-55d98c41c4ba"
+
+[[kv_namespaces]]
+binding = "MEDIA"
+id = "eeb464dc909a45659ad710b8310dd3fd"
+
+[observability]
+enabled = true
