@@ -1592,7 +1592,7 @@ $("cartBtn").onclick=function(){
       (active.description ? '<div style="margin-top:12px"><div class="name" style="font-size:14px;color:var(--act);margin-bottom:3px">About</div><p style="margin:0;line-height:1.5;white-space:pre-wrap">' + esc(active.description) + "</p></div>" : "") +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px">' +
         contactInline +
-        '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none">Share business</button>' +
+        '<button class="sec" onclick="window._bizShare(\'' + esc(active.id) + '\')" style="flex:none;padding:6px 12px;font-size:14px">Share business</button>' +
       "</div>" +
     "</div>";
 
@@ -2417,8 +2417,8 @@ $("cartBtn").onclick=function(){
         '<div style="display:flex;align-items:center;gap:12px">' +
           thumb +
           '<div style="flex:1;min-width:0">' +
-            '<div class="row" style="gap:8px"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</div><span class="tag" style="flex:none;color:' + (p.published ? "var(--act)" : "var(--mu)") + '">' + (p.published ? "Published" : "Draft") + "</span></div>" +
-            '<div style="margin-top:2px"><b class="price">' + esc(window._prodFmt(p.price, p.currency)) + '</b> <span class="mu" style="font-size:13px">· ' + esc(p.condition) + " · " + esc(p.category) + "</span></div>" +
+            '<div class="row" style="gap:8px"><div class="name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</div><span class="tag" style="flex:none">' + esc(p.condition) + '</span></div>' +
+            '<div style="margin-top:2px"><b class="price">' + esc(window._prodFmt(p.price, p.currency)) + '</b> <span class="mu" style="font-size:13px">· ' + esc(p.category) + "</span></div>" +
             '<div class="mu" style="font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.business_name) + "</div>" +
           "</div>" +
         "</div>" +
@@ -2637,8 +2637,8 @@ $("cartBtn").onclick=function(){
                 '<div data-bpv="' + esc(p.id) + '" style="display:flex;align-items:center;gap:12px;cursor:pointer">' +
                   thumb +
                   '<div style="flex:1;min-width:0">' +
-                    '<div class="row" style="gap:8px"><div class="name" style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</div>' + (biz.is_owner ? '<span class="tag" style="flex:none;color:' + (p.published ? "var(--act)" : "var(--mu)") + '">' + (p.published ? "Published" : "Draft") + "</span>" : "") + "</div>" +
-                    '<div style="margin-top:2px"><b class="price">' + esc(window._prodFmt(p.price, p.currency)) + '</b> <span class="mu" style="font-size:12px">· ' + esc(p.condition) + " · " + esc(p.category) + "</span></div>" +
+                    '<div class="row" style="gap:8px"><div class="name" style="font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(p.name) + '</div><span class="tag" style="flex:none">' + esc(p.condition) + '</span></div>' +
+                    '<div style="margin-top:2px"><b class="price">' + esc(window._prodFmt(p.price, p.currency)) + '</b> <span class="mu" style="font-size:12px">· ' + esc(p.category) + "</span></div>" +
                   "</div>" +
                 "</div>" +
                 (biz.is_owner
